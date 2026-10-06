@@ -91,6 +91,12 @@ uniform vec3 uDeepColor;
 uniform vec3 uTileColor;
 uniform vec3 uGroutColor;
 uniform vec3 uSunDir;
+uniform vec4 uFish[8];      // xy = uv position, z = heading, w = size (screen heights)
+uniform int uFishCount;
+uniform vec4 uLily[12];     // xy = uv position, z = radius, w = rotation
+uniform int uLilyCount;
+uniform float uPoolLights;
+uniform vec3 uLightColor;
 
 float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -135,21 +141,56 @@ float causticPattern(vec2 p, float t) {
 
 vec3 poolFloor(vec2 uv, float aspect) {
   vec2 p = uv * vec2(aspect, 1.0) * uTileScale;
+  float aa = uTileScale / uResolution.y * 1.5;
   if (uFloorStyle == 0) {
     vec2 cell = floor(p);
     vec2 f = fract(p);
     float h = hash12(cell);
     vec2 e = min(f, 1.0 - f);
     float edge = min(e.x, e.y);
-    float aa = uTileScale / uResolution.y * 1.5;
     float grout = 1.0 - smoothstep(0.022, 0.022 + aa, edge);
     vec3 tile = uTileColor * (0.9 + 0.14 * h);
     tile *= 0.94 + 0.06 * smoothstep(0.0, 0.2, edge);
-    // a dark lane stripe every 6 tiles, like a lap pool
     float isLane = 1.0 - step(0.5, abs(mod(cell.y, 6.0) - 3.0));
     float lane = isLane * (1.0 - smoothstep(0.16, 0.16 + aa, abs(f.y - 0.5)));
     tile = mix(tile, uGroutColor * 0.5, lane * 0.8);
     return mix(tile, uGroutColor, grout);
+  }
+  if (uFloorStyle == 3) {
+    // mosaic: small tesserae with a repeating medallion pattern
+    vec2 cell = floor(p);
+    vec2 f = fract(p);
+    float h = hash12(cell);
+    vec2 e = min(f, 1.0 - f);
+    float grout = 1.0 - smoothstep(0.04, 0.04 + aa * 2.0, min(e.x, e.y));
+    vec2 q = mod(cell, 16.0) - 7.5;
+    float ring = abs(length(q) - 5.0);
+    float diamond = abs(abs(q.x) + abs(q.y) - 3.0);
+    vec3 c = uTileColor * (0.9 + 0.12 * h);
+    c = mix(c, uWaterColor * 1.1, step(ring, 0.7) * 0.7);
+    c = mix(c, uGroutColor * 1.3, step(diamond, 0.6));
+    c = mix(c, vec3(1.0, 0.85, 0.45), step(length(q), 1.2) * 0.8);
+    return mix(c, uGroutColor * 0.7, grout);
+  }
+  if (uFloorStyle == 4) {
+    // pebbles: rounded voronoi stones
+    vec2 g = floor(p), f = fract(p);
+    float d1 = 8.0, d2 = 8.0;
+    vec2 id = vec2(0.0);
+    for (int y = -1; y <= 1; y++) {
+      for (int x = -1; x <= 1; x++) {
+        vec2 o = vec2(float(x), float(y));
+        vec2 r = o + hash22(g + o) * 0.8 + 0.1 - f;
+        float dd = dot(r, r);
+        if (dd < d1) { d2 = d1; d1 = dd; id = g + o; } else if (dd < d2) { d2 = dd; }
+      }
+    }
+    float gap = sqrt(d2) - sqrt(d1);
+    float h = hash12(id);
+    vec3 stone = mix(uTileColor, uTileColor * vec3(1.1, 0.95, 0.85), h) * (0.75 + 0.35 * hash12(id + 3.1));
+    stone *= 0.85 + 0.2 * smoothstep(0.0, 0.25, gap);
+    stone += 0.08 * smoothstep(0.35, 0.0, sqrt(d1)) ;
+    return mix(uGroutColor * 0.6, stone, smoothstep(0.03, 0.09, gap));
   }
   if (uFloorStyle == 1) {
     float n = vnoise(p * 3.0) * 0.5 + vnoise(p * 9.0) * 0.3 + vnoise(p * 27.0) * 0.2;
@@ -157,6 +198,35 @@ vec3 poolFloor(vec2 uv, float aspect) {
     return mix(uGroutColor, uTileColor, clamp(n * 0.8 + ripple * 0.25, 0.0, 1.0));
   }
   return uTileColor;
+}
+
+// Koi: returns (coverage, pattern) for the fish at local coords.
+vec2 koiShape(vec2 q, float t, float seed) {
+  // q: x along body (head +1, tail -1.6), y across
+  float wig = sin(q.x * 2.5 - t * 7.0 + seed * 6.0) * 0.12 * smoothstep(0.8, -1.5, q.x);
+  q.y += wig;
+  float w = 0.34 * sqrt(max(0.0, 1.0 - pow((q.x - 0.05) / 1.0, 2.0)));
+  w *= mix(1.0, 0.55, smoothstep(0.2, -1.0, q.x));
+  float body = smoothstep(0.03, -0.03, abs(q.y) - w) * step(-1.05, q.x);
+  vec2 tq = q - vec2(-1.2, 0.0);
+  float tail = smoothstep(0.03, -0.03, abs(tq.y) - (0.05 + 0.32 * clamp(-tq.x / 0.45 + 0.5, 0.0, 1.0))) * step(-1.6, q.x) * step(q.x, -0.95);
+  vec2 fq = vec2(q.x - 0.35, abs(q.y) - 0.25);
+  float fin = smoothstep(0.02, -0.02, length(fq * vec2(1.6, 1.0)) - 0.16 - 0.03 * sin(t * 5.0 + seed));
+  float cover = max(max(body, tail * 0.85), fin * 0.7);
+  float pat = vnoise(q * 3.2 + seed * 17.0);
+  return vec2(cover, pat);
+}
+
+vec3 koiColor(int i, float pat) {
+  vec3 white = vec3(0.95, 0.93, 0.88);
+  vec3 orange = vec3(1.0, 0.45, 0.1);
+  vec3 red = vec3(0.85, 0.12, 0.08);
+  vec3 gold = vec3(1.0, 0.78, 0.25);
+  int k = i - (i / 4) * 4;
+  if (k == 0) return mix(white, orange, smoothstep(0.45, 0.55, pat));
+  if (k == 1) return mix(white, red, smoothstep(0.5, 0.6, pat));
+  if (k == 2) return gold * (0.85 + 0.3 * pat);
+  return mix(orange, vec3(0.08), smoothstep(0.62, 0.7, pat));
 }
 
 float H(vec2 uv) { return texture(uHeight, uv).r; }
@@ -186,6 +256,33 @@ void main() {
     col *= 1.0 + focus * 0.25 * uCaustics;
   } else {
     vec3 floorCol = poolFloor(fuv, aspect);
+    // Underwater lights along the long walls.
+    if (uPoolLights > 0.001) {
+      float glow = 0.0;
+      for (int i = 0; i < 5; i++) {
+        float x = (float(i) + 0.5) / 5.0;
+        vec2 a = (fuv - vec2(x, 0.0)) * vec2(aspect, 1.0);
+        vec2 b = (fuv - vec2(x, 1.0)) * vec2(aspect, 1.0);
+        glow += exp(-dot(a, a) * 16.0) + exp(-dot(b, b) * 16.0);
+      }
+      floorCol += uLightColor * glow * uPoolLights * 0.9;
+      floorCol *= 1.0 + uPoolLights * 0.15;
+    }
+    // Koi swim between the floor and the surface (with a soft shadow).
+    for (int i = 0; i < 8; i++) {
+      if (i >= uFishCount) break;
+      vec4 fsh = uFish[i];
+      float ca = cos(fsh.z), sa = sin(fsh.z);
+      vec2 d = (fuv - fsh.xy) * vec2(aspect, 1.0) / fsh.w;
+      vec2 q = vec2(d.x * ca + d.y * sa, -d.x * sa + d.y * ca);
+      vec2 sd = d - vec2(0.25, -0.35);
+      vec2 sq = vec2(sd.x * ca + sd.y * sa, -sd.x * sa + sd.y * ca);
+      float shadow = koiShape(sq, uTime, float(i)).x;
+      floorCol *= 1.0 - shadow * 0.35;
+      vec2 k = koiShape(q, uTime, float(i));
+      vec3 kc = koiColor(i, k.y) * (0.85 + 0.25 * smoothstep(0.2, -0.2, q.y));
+      floorCol = mix(floorCol, kc, k.x);
+    }
     vec2 cp = fuv * vec2(aspect, 1.0) * 3.2 + n.xy * 0.5;
     float caus = causticPattern(cp, uTime * 0.9);
     float light = 0.78 + uCaustics * (caus * 0.38 + focus * 0.6) * mix(1.0, 0.6, uDepth);
@@ -210,6 +307,32 @@ void main() {
   vec3 Hh = normalize(L + V);
   float spec = pow(max(dot(n, Hh), 0.0), 350.0) * uSpecular * 2.5;
   col += vec3(1.0, 0.97, 0.9) * spec;
+
+  // Lily pads float on the surface: displaced by the waves, lit by the sun.
+  for (int i = 0; i < 12; i++) {
+    if (i >= uLilyCount) break;
+    vec4 lp = uLily[i];
+    vec2 d = (vUv - lp.xy + n.xy * 0.004) * vec2(aspect, 1.0);
+    float r = length(d);
+    float ang = atan(d.y, d.x) - lp.w;
+    float notch = smoothstep(0.18, 0.1, abs(mod(ang + 3.14159, 6.28318) - 3.14159)) * smoothstep(lp.z * 0.1, lp.z * 0.5, r);
+    float pad = smoothstep(lp.z, lp.z * 0.95, r) * (1.0 - notch);
+    if (pad <= 0.0) continue;
+    float veins = 0.5 + 0.5 * cos(ang * 9.0);
+    vec3 green = mix(vec3(0.16, 0.42, 0.14), vec3(0.32, 0.6, 0.2), smoothstep(0.0, lp.z, r));
+    green *= 0.9 + 0.1 * veins;
+    float lit = 0.75 + 0.35 * dot(normalize(vec3(n.xy * 4.0 - d / max(lp.z, 1e-3) * 0.25, 1.0)), normalize(uSunDir));
+    vec3 padCol = green * lit;
+    padCol = mix(padCol, padCol * 0.6, smoothstep(lp.z * 0.95, lp.z * 0.82, r) * 0.0 + smoothstep(lp.z * 0.8, lp.z, r) * 0.3);
+    if (i - (i / 3) * 3 == 0) {
+      float fl = smoothstep(lp.z * 0.32, lp.z * 0.22, r);
+      float petals = 0.5 + 0.5 * cos(ang * 8.0 + lp.w * 3.0);
+      vec3 pink = mix(vec3(1.0, 0.75, 0.85), vec3(1.0, 0.95, 0.97), petals);
+      padCol = mix(padCol, pink, fl);
+      padCol = mix(padCol, vec3(1.0, 0.85, 0.3), smoothstep(lp.z * 0.08, lp.z * 0.04, r));
+    }
+    col = mix(col * (1.0 - 0.25 * smoothstep(lp.z * 1.15, lp.z, r)), padCol, pad);
+  }
   outColor = vec4(col, 1.0);
 }`;
 
@@ -326,26 +449,28 @@ uniform float uTemperature;
 uniform float uVignette;
 uniform float uVignetteSoft;
 uniform float uGrain;
+uniform vec2 uOffset;   // parallax shift (uv)
+uniform float uZoom;    // >= 1 zoom-in factor (parallax headroom + beat pulse)
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
 void main() {
-  vec3 c = texture(uSrc, vUv).rgb;
+  vec2 uv = (vUv - 0.5) / uZoom + 0.5 + uOffset;
+  vec3 c = texture(uSrc, uv).rgb;
   if (uSharpen > 0.001) {
-    // Contrast-adaptive sharpening (CAS-style).
-    vec3 a = texture(uSrc, vUv + vec2(0.0, uTexel.y)).rgb;
-    vec3 b = texture(uSrc, vUv - vec2(0.0, uTexel.y)).rgb;
-    vec3 e = texture(uSrc, vUv + vec2(uTexel.x, 0.0)).rgb;
-    vec3 w = texture(uSrc, vUv - vec2(uTexel.x, 0.0)).rgb;
+    vec3 a = texture(uSrc, uv + vec2(0.0, uTexel.y)).rgb;
+    vec3 b = texture(uSrc, uv - vec2(0.0, uTexel.y)).rgb;
+    vec3 e = texture(uSrc, uv + vec2(uTexel.x, 0.0)).rgb;
+    vec3 w = texture(uSrc, uv - vec2(uTexel.x, 0.0)).rgb;
     vec3 mn = min(c, min(min(a, b), min(e, w)));
     vec3 mx = max(c, max(max(a, b), max(e, w)));
     vec3 amp = sqrt(clamp(min(mn, 2.0 - mx) / max(mx, 1e-4), 0.0, 1.0));
     vec3 wgt = amp * (-1.0 / mix(8.0, 5.0, clamp(uSharpen, 0.0, 1.0)));
     c = clamp(((a + b + e + w) * wgt + c) / (1.0 + 4.0 * wgt), 0.0, 1.0);
   }
-  if (uHasBlur == 1) c = mix(c, texture(uBlurTex, vUv).rgb, clamp(uBlur * 1.5, 0.0, 1.0));
+  if (uHasBlur == 1) c = mix(c, texture(uBlurTex, uv).rgb, clamp(uBlur * 1.5, 0.0, 1.0));
   c *= uBrightness;
-  c *= vec3(1.0 + uTemperature * 0.12, 1.0, 1.0 - uTemperature * 0.12);
+  c *= vec3(1.0 + uTemperature * 0.12, 1.0 + uTemperature * 0.02, 1.0 - uTemperature * 0.14);
   c = (c - 0.5) * uContrast + 0.5;
   float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
   c = mix(vec3(lum), c, uSaturation);
@@ -359,6 +484,65 @@ void main() {
   }
   if (uGrain > 0.001) c += (hash(vUv * uResolution + fract(uTime) * 100.0) - 0.5) * uGrain * 0.12;
   outColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`;
+
+// Still image with Ken Burns pan & zoom.
+export const IMAGE_FS = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uTex;
+uniform vec2 uSize;
+uniform vec2 uOut;
+uniform int uFit;
+uniform float uScale;
+uniform vec2 uPan;
+void main() {
+  vec2 uv = vUv;
+  if (uFit != 2 && uSize.x > 1.0) {
+    float sa = uSize.x / uSize.y, da = uOut.x / uOut.y;
+    vec2 s = vec2(1.0);
+    if (uFit == 0) { if (sa > da) s.x = da / sa; else s.y = sa / da; }
+    else { if (sa > da) s.y = sa / da; else s.x = da / sa; }
+    uv = (uv - 0.5) * s + 0.5;
+  }
+  uv = (uv - 0.5) / uScale + 0.5 + uPan;
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  outColor = vec4(texture(uTex, uv).rgb, 1.0);
+}`;
+
+// Blend between the previous wallpaper (frozen frame) and the new one.
+export const TRANSITION_FS = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uFrom;
+uniform sampler2D uTo;
+uniform float uProgress;
+uniform int uType;   // 0 fade, 1 ripple dissolve
+uniform vec2 uCenter;
+uniform float uAspect;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+}
+void main() {
+  float t = smoothstep(0.0, 1.0, uProgress);
+  if (uType == 1) {
+    vec2 d = (vUv - uCenter) * vec2(uAspect, 1.0);
+    float r = length(d);
+    float edge = t * 1.6 - 0.15 + (noise(vUv * 9.0) - 0.5) * 0.12;
+    float m = smoothstep(edge + 0.06, edge - 0.06, r);
+    float ring = exp(-abs(r - edge) * 40.0) * (1.0 - t);
+    vec2 off = normalize(d + 1e-4) * ring * 0.02;
+    vec3 a = texture(uFrom, vUv - off).rgb;
+    vec3 b = texture(uTo, vUv + off).rgb;
+    outColor = vec4(mix(a, b, m) + ring * 0.25, 1.0);
+  } else {
+    outColor = vec4(mix(texture(uFrom, vUv).rgb, texture(uTo, vUv).rgb, t), 1.0);
+  }
 }`;
 
 // ------------------------------------------------------------------ particles / light trails
@@ -410,3 +594,4 @@ void main() {
 
 /** Number of lines the wrapper adds before user code (for error line mapping). */
 export const SHADERTOY_PREFIX_LINES = 10;
+

@@ -1,6 +1,7 @@
 import { FullscreenTri, GL, Program, Target, bindTarget, createTarget, disposeTarget, hexToRgb } from "./gl";
 import { FULLSCREEN_VS, SIM_DROP_FS, SIM_UPDATE_FS, WATER_FS } from "./shaders";
 import type { WaterSettings } from "../shared/types";
+import type { PondLife } from "./PondLife";
 
 export interface Drop { ax: number; ay: number; bx: number; by: number; radius: number; strength: number }
 
@@ -118,11 +119,13 @@ export interface WaterLook {
 /** Renders the pool scene, or refracts a source texture through the ripples. */
 export class WaterRenderer {
   private prog: Program;
+  private life: PondLife | null = null;
   constructor(private gl: GL, private tri: FullscreenTri) {
     this.prog = new Program(gl, FULLSCREEN_VS, WATER_FS);
   }
 
-  renderPool(target: Target | null, w: number, h: number, sim: WaterSim, s: WaterSettings, time: number) {
+  renderPool(target: Target | null, w: number, h: number, sim: WaterSim, s: WaterSettings, time: number, life: PondLife | null) {
+    this.life = life;
     this.draw(target, w, h, sim, time, null, {
       waveIntensity: s.waveIntensity,
       refraction: s.refraction,
@@ -135,6 +138,7 @@ export class WaterRenderer {
   }
 
   renderOverlay(target: Target | null, w: number, h: number, sim: WaterSim, source: WebGLTexture, look: WaterLook, time: number) {
+    this.life = null;
     this.draw(target, w, h, sim, time, source, look, null);
   }
 
@@ -157,15 +161,22 @@ export class WaterRenderer {
       .f1("uReflection", look.reflection)
       .f3("uSunDir", 0.35, 0.55, 0.76);
     if (s) {
+      const floors = { tiles: 0, sand: 1, plain: 2, mosaic: 3, pebbles: 4 } as const;
       p.f1("uTileScale", s.tileScale)
         .f1("uEdgeShadow", s.edgeShadow)
-        .i1("uFloorStyle", s.floorStyle === "tiles" ? 0 : s.floorStyle === "sand" ? 1 : 2)
+        .i1("uFloorStyle", floors[s.floorStyle] ?? 0)
+        .f1("uPoolLights", s.poolLights)
+        .c3("uLightColor", hexToRgb(s.lightColor))
+        .i1("uFishCount", this.life ? this.life.fishCount : 0)
+        .i1("uLilyCount", this.life ? this.life.padCount : 0);
+      if (this.life) p.f4v("uFish", this.life.fishData).f4v("uLily", this.life.padData);
+      p
         .c3("uWaterColor", hexToRgb(s.waterColor))
         .c3("uDeepColor", hexToRgb(s.deepColor))
         .c3("uTileColor", hexToRgb(s.tileColor))
         .c3("uGroutColor", hexToRgb(s.groutColor));
     } else {
-      p.f1("uTileScale", 8).f1("uEdgeShadow", 0).i1("uFloorStyle", 2)
+      p.f1("uTileScale", 8).f1("uEdgeShadow", 0).i1("uFloorStyle", 2).f1("uPoolLights", 0).i1("uFishCount", 0).i1("uLilyCount", 0)
         .f3("uWaterColor", 0, 0, 0).f3("uDeepColor", 0, 0, 0).f3("uTileColor", 1, 1, 1).f3("uGroutColor", 1, 1, 1);
     }
     this.tri.draw();

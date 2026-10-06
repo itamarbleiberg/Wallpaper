@@ -64,6 +64,54 @@ export async function pickVideoFile(): Promise<string | null> {
   return typeof r === "string" ? r : null;
 }
 
+export async function pickImageFile(): Promise<string | null> {
+  if (!isTauri) {
+    return new Promise((resolve) => {
+      const i = document.createElement("input");
+      i.type = "file";
+      i.accept = "image/*";
+      i.onchange = () => resolve(i.files?.[0] ? URL.createObjectURL(i.files[0]) : null);
+      i.click();
+    });
+  }
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const r = await open({ multiple: false, directory: false, filters: [{ name: "Image", extensions: ["jpg", "jpeg", "png", "webp", "bmp", "gif"] }] });
+  return typeof r === "string" ? r : null;
+}
+
+/** Save text to a user-chosen file. Returns false if cancelled. */
+export async function exportText(defaultName: string, text: string, ext: string): Promise<boolean> {
+  if (!isTauri) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    a.download = defaultName;
+    a.click();
+    return true;
+  }
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const path = await save({ defaultPath: defaultName, filters: [{ name: "AquaWall", extensions: [ext, "json"] }] });
+  if (!path) return false;
+  await invoke("write_text_file", { path, contents: text });
+  return true;
+}
+
+/** Let the user pick a text file and return its contents (null if cancelled). */
+export async function importText(exts: string[]): Promise<string | null> {
+  if (!isTauri) {
+    return new Promise((resolve) => {
+      const i = document.createElement("input");
+      i.type = "file";
+      i.accept = exts.map((e) => "." + e).join(",");
+      i.onchange = async () => resolve(i.files?.[0] ? await i.files[0].text() : null);
+      i.click();
+    });
+  }
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const r = await open({ multiple: false, directory: false, filters: [{ name: "AquaWall", extensions: exts }] });
+  if (typeof r !== "string") return null;
+  return invoke<string>("read_text_file", { path: r });
+}
+
 export async function onFileDrop(cb: (paths: string[]) => void): Promise<Unlisten> {
   if (!isTauri) return () => undefined;
   const { getCurrentWebview } = await import("@tauri-apps/api/webview");
@@ -87,11 +135,6 @@ async function browserInvoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   switch (cmd) {
     case "get_config":
       return load() as T;
-    case "set_config": {
-      localStorage.setItem("aquawall-config", JSON.stringify(args!.config));
-      emitLocal("config-changed", args!.config);
-      return undefined as T;
-    }
     case "list_monitors":
       return [mon] as T;
     case "get_targets": {
@@ -99,13 +142,43 @@ async function browserInvoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       const t: WallpaperTarget = { label: "wallpaper-0", presetId: cfg.display.defaultPresetId, rect: mon.rect, monitors: [mon], attachMode: "browser" };
       return [t] as T;
     }
+    case "diagnostics":
+      return ["Browser preview - no desktop embedding."] as T;
+    case "list_window_apps":
+      return ["chrome.exe", "code.exe", "photoshop.exe", "steam.exe"] as T;
+    case "set_paused": {
+      const c = load();
+      c.paused = !!args!.paused;
+      localStorage.setItem("aquawall-config", JSON.stringify(c));
+      emitLocal("config-changed", c);
+      return undefined as T;
+    }
+    case "step_wallpaper": {
+      const c = load();
+      const ids = c.presets.map((p) => p.id);
+      const i = ids.indexOf(c.display.defaultPresetId);
+      const d = Number(args!.dir);
+      c.display.defaultPresetId = d === 0 ? ids[Math.floor(Math.random() * ids.length)] : ids[(i + d + ids.length) % ids.length];
+      localStorage.setItem("aquawall-config", JSON.stringify(c));
+      emitLocal("config-changed", c);
+      emitLocal("targets-changed", [{ label: "wallpaper-0", presetId: c.display.defaultPresetId, rect: mon.rect, monitors: [mon], attachMode: "browser" }]);
+      return undefined as T;
+    }
+    case "set_config": {
+      const cfg = args!.config as AppConfig;
+      localStorage.setItem("aquawall-config", JSON.stringify(cfg));
+      emitLocal("config-changed", cfg);
+      emitLocal("targets-changed", [{ label: "wallpaper-0", presetId: cfg.display.defaultPresetId, rect: mon.rect, monitors: [mon], attachMode: "browser" }]);
+      return [] as T;
+    }
     case "get_playback":
       return {} as Record<string, PlaybackState> as T;
     case "tool_status":
       return { ffmpeg: null, ffprobe: null, ytdlp: null, libraryDir: "(browser preview)" } satisfies ToolStatus as T;
     case "import_url":
     case "bake_video":
-      throw new Error("Downloading and baking require the desktop app.");
+    case "save_image":
+      throw new Error("This needs the AquaWall desktop app.");
     default:
       return undefined as T;
   }

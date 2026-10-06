@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { Renderer } from "../engine/Renderer";
-import { videoUrlResolver } from "../shared/ipc";
+import { listen, videoUrlResolver } from "../shared/ipc";
 import type { Preset } from "../shared/types";
 import { useStore } from "./store";
 
-/** Live preview of the selected preset, interactive with the real mouse. */
-export function Preview({ preset }: { preset: Preset | null }) {
+/** The live preview renderer currently mounted (used for screenshots). */
+export let activePreview: Renderer | null = null;
+
+/** Live, interactive preview of a preset (uses the real mouse). */
+export function Preview({ preset, badge = true }: { preset: Preset | null; badge?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<Renderer | null>(null);
   const [fps, setFps] = useState(0);
   const [fatal, setFatal] = useState<string | null>(null);
+  const transitions = useStore((s) => s.config?.transitions);
 
   useEffect(() => {
     let r: Renderer | null = null;
     let cancelled = false;
+    let unAudio: (() => void) | undefined;
     videoUrlResolver().then((resolve) => {
       if (cancelled || !canvas.current) return;
       try {
@@ -27,8 +32,9 @@ export function Preview({ preset }: { preset: Preset | null }) {
           onVideoTime: (t, duration) => useStore.setState({ videoTime: { t, duration } }),
         });
         renderer.current = r;
-        const p = useStore.getState().selected();
-        if (p) r.setPreset(p);
+        activePreview = r;
+        if (preset) r.setPreset(preset);
+        listen<number[]>("audio-spectrum", (b) => r?.setAudio(b)).then((u) => (unAudio = u));
       } catch (e) {
         setFatal(String((e as Error).message ?? e));
       }
@@ -37,11 +43,18 @@ export function Preview({ preset }: { preset: Preset | null }) {
     document.addEventListener("visibilitychange", onVis);
     return () => {
       cancelled = true;
+      unAudio?.();
       document.removeEventListener("visibilitychange", onVis);
+      if (activePreview === r) activePreview = null;
       r?.destroy();
       renderer.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (transitions && renderer.current) renderer.current.transition = transitions;
+  }, [transitions]);
 
   useEffect(() => {
     if (preset) renderer.current?.setPreset(preset);
@@ -54,14 +67,8 @@ export function Preview({ preset }: { preset: Preset | null }) {
 
   return (
     <div className="preview">
-      <canvas
-        ref={canvas}
-        onPointerMove={pointer}
-        onPointerDown={pointer}
-        onPointerUp={pointer}
-        onPointerLeave={(e) => pointer(e, false)}
-      />
-      <div className="preview-badge">{fatal ? "Renderer error" : `${Math.round(fps)} fps · move/click to interact`}</div>
+      <canvas ref={canvas} onPointerMove={pointer} onPointerDown={pointer} onPointerUp={pointer} onPointerLeave={(e) => pointer(e, false)} />
+      {badge && <div className="preview-badge">{fatal ? "Renderer error" : `${Math.round(fps)} FPS · move & click to interact`}</div>}
       {fatal && <div className="preview-error">{fatal}</div>}
     </div>
   );

@@ -2,56 +2,33 @@
   position: absolute;
   inset: 0;
   font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
-  font-size: clamp(12px, 1.6vmin, 28px);
+  font-size: clamp(12px, 1.6vmin, 30px);
   user-select: none;
 }
-.aq-widget {
-  display: flex;
-  flex-direction: column;
-  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
-}
-.aq-clock-time {
-  font-size: 4.6em;
-  font-weight: 200;
-  letter-spacing: -0.02em;
-  line-height: 1;
-}
-.aq-clock-date {
-  font-size: 1.25em;
-  font-weight: 400;
-  opacity: 0.85;
-  margin-top: 0.25em;
-}
-.aq-weather-main {
-  display: flex;
-  align-items: center;
-  gap: 0.35em;
-  font-size: 2.4em;
-  font-weight: 300;
-}
-.aq-weather-sub {
-  opacity: 0.8;
-  font-size: 1em;
-}
-.aq-ring {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.2em;
-}
-.aq-ring-label {
-  font-size: 0.85em;
-  opacity: 0.85;
+.aq-widget { display: flex; flex-direction: column; text-shadow: 0 2px 20px rgba(0, 0, 0, 0.5); }
+.aq-clock-time { font-size: 4.8em; font-weight: 200; letter-spacing: -0.02em; line-height: 1; }
+.aq-clock.style-bold .aq-clock-time { font-weight: 700; letter-spacing: -0.04em; }
+.aq-clock.style-mono .aq-clock-time { font-family: "Cascadia Mono", Consolas, monospace; font-weight: 300; letter-spacing: 0.02em; }
+.aq-clock-date { font-size: 1.3em; font-weight: 400; opacity: 0.85; margin-top: 0.3em; }
+.aq-weather-main { display: flex; align-items: center; gap: 0.35em; font-size: 2.4em; font-weight: 300; }
+.aq-weather-sub { opacity: 0.82; font-size: 1em; }
+.aq-ring { display: flex; flex-direction: column; align-items: center; gap: 0.2em; }
+.aq-ring-label { font-size: 0.85em; opacity: 0.85; }
+.aq-text-main { font-size: 3em; font-weight: 200; line-height: 1.15; max-width: 60vw; }
+.aq-text.style-bold .aq-text-main { font-weight: 700; letter-spacing: -0.02em; }
+.aq-text.style-serif .aq-text-main { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 400; }
+.aq-text-sub { font-size: 1.2em; opacity: 0.8; margin-top: 0.4em; letter-spacing: 0.08em; text-transform: uppercase; }
+.aq-cd-title { font-size: 1.1em; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.85; margin-bottom: 0.3em; }
+.aq-cd-grid { display: flex; gap: 0.9em; }
+.aq-cd-grid div { display: flex; flex-direction: column; align-items: center; }
+.aq-cd-grid b { font-size: 2.6em; font-weight: 300; font-variant-numeric: tabular-nums; line-height: 1; }
+.aq-cd-grid span { font-size: 0.8em; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.1em; }
+.aq-cd-done { font-size: 2em; font-weight: 300; }
+.aq-hud {
+  position: fixed; left: 12px; top: 12px; padding: 4px 10px; border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55); color: #9ff0a8; font: 12px/1.4 "Cascadia Mono", Consolas, monospace; pointer-events: none;
 }
 .aq-error {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  max-width: 50vw;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(120, 0, 0, 0.75);
-  color: #fff;
-  font: 12px/1.4 "Segoe UI", system-ui, sans-serif;
-  white-space: pre-wrap;
+  position: fixed; left: 16px; bottom: 16px; max-width: 50vw; padding: 8px 12px; border-radius: 8px;
+  background: rgba(120, 0, 0, 0.75); color: #fff; font: 12px/1.4 "Segoe UI", system-ui, sans-serif; white-space: pre-wrap;
 }

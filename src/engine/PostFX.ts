@@ -2,6 +2,8 @@ import { FullscreenTri, GL, Program, Target, bindTarget, createTarget, disposeTa
 import { BLUR_FS, FULLSCREEN_VS, POST_FS } from "./shaders";
 import type { FilterSettings } from "../shared/types";
 
+export interface PostView { offsetX: number; offsetY: number; zoom: number; brightness: number; warmth: number }
+
 /** Sharpening, color grading, blur, vignette and grain in (at most) 3 passes. */
 export class PostFX {
   private post: Program;
@@ -26,7 +28,7 @@ export class PostFX {
     }
   }
 
-  render(src: WebGLTexture, srcW: number, srcH: number, outW: number, outH: number, f: FilterSettings, time: number) {
+  render(src: WebGLTexture, srcW: number, srcH: number, out: Target | null, outW: number, outH: number, f: FilterSettings, time: number, view: PostView) {
     const gl = this.gl;
     let blurTex: WebGLTexture | null = null;
     if (f.blur > 0.001) {
@@ -44,7 +46,7 @@ export class PostFX {
       }
       blurTex = this.bB!.tex;
     }
-    bindTarget(gl, null, outW, outH);
+    bindTarget(gl, out, outW, outH);
     this.post.use()
       .tex("uSrc", 0, src)
       .tex("uBlurTex", 1, blurTex)
@@ -54,15 +56,17 @@ export class PostFX {
       .f1("uTime", time)
       .f1("uSharpen", f.sharpen)
       .f1("uBlur", f.blur)
-      .f1("uBrightness", f.brightness)
+      .f1("uBrightness", f.brightness * view.brightness)
       .f1("uContrast", f.contrast)
       .f1("uSaturation", f.saturation)
       .f1("uVibrance", f.vibrance)
       .f1("uGamma", f.gamma)
-      .f1("uTemperature", f.temperature)
+      .f1("uTemperature", f.temperature + view.warmth)
       .f1("uVignette", f.vignette)
       .f1("uVignetteSoft", f.vignetteSoftness)
-      .f1("uGrain", f.grain);
+      .f1("uGrain", f.grain)
+      .f2("uOffset", view.offsetX, view.offsetY)
+      .f1("uZoom", view.zoom);
     this.tri.draw();
   }
 

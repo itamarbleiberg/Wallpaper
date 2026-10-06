@@ -59,6 +59,7 @@ export class Program {
   f3(n: string, a: number, b: number, c: number) { this.gl.uniform3f(this.loc(n), a, b, c); return this; }
   f4(n: string, a: number, b: number, c: number, d: number) { this.gl.uniform4f(this.loc(n), a, b, c, d); return this; }
   i1(n: string, a: number) { this.gl.uniform1i(this.loc(n), a); return this; }
+  f4v(n: string, data: Float32Array) { this.gl.uniform4fv(this.loc(n), data); return this; }
   c3(n: string, rgb: [number, number, number]) { return this.f3(n, rgb[0], rgb[1], rgb[2]); }
   tex(n: string, unit: number, t: WebGLTexture | null) {
     const gl = this.gl;

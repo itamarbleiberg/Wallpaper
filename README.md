@@ -1,61 +1,72 @@
-# AquaWall — interactive live wallpapers for Windows 11
+# AquaWall: interactive live wallpapers for Windows 11
 
-AquaWall renders an **interactive water pool**, **videos** (local files or TikTok / YouTube Shorts / Reels links) and **GLSL shaders** behind your desktop icons. Your cursor makes ripples in the water.
+AquaWall puts an **interactive water pool**, a **koi pond**, **videos** (local files or TikTok / YouTube Shorts / Reels links), **photos** and **GLSL shaders** behind your desktop icons. Your mouse makes ripples, startles the fish and pushes the lily pads around.
 
 ## Install (no build needed)
 
-1. Open the repo's **Releases** page and pick **Latest build**. You can also open **Actions → Build Windows installer** and download the `AquaWall-windows` artifact from the newest run.
-2. Run `AquaWall_1.0.0_x64-setup.exe`. It installs per-user, so you don't need admin rights.
-3. AquaWall starts with the *Interactive Pool* wallpaper and opens the settings window. Closing the window keeps it running in the system tray.
+1. Open the repo's **Releases** page and pick **Latest build**, or download the `AquaWall-windows` artifact from **Actions**.
+2. Run `AquaWall_2.0.0_x64-setup.exe`. It installs per-user, so you don't need admin rights.
+3. AquaWall opens on the Gallery. Closing the window keeps it running in the system tray.
 
 > The installer isn't code-signed, so Windows SmartScreen may warn you. Click **More info → Run anyway**.
 
-## Features
+## What's inside
+
+**33 built-in wallpapers**
+- **Water (9):** Interactive Pool, Midnight Pool, Lagoon Sand, Koi Pond, Zen Lily Garden, Rainy Koi Pond, Neon Night Swim, Mosaic Spa, Glacier Lagoon.
+- **Shaders (24):** Aurora Veil, Neon Horizon, Liquid Plasma, Deep Space Drift, Nebula Bloom, Ocean Sunset, Rain on Glass, Lava Lamp, Digital Rain, Firefly Forest, Snowy Peaks, Neon Tunnel, Ink Bloom, Desert Dunes, Hex Pulse, Bokeh Dreams, Spiral Galaxy, Sunbeams Below, Silk Gradient, Liquid Chrome, Sakura Drift, Thunderstorm, Windy Meadow, Outrun Sunset.
+
+**Features**
 
 | Area | What you get |
 |---|---|
-| Default wallpaper | GPU water simulation driven by the mouse, with velocity-based wakes, a spring-smoothed cursor and click splashes. Includes refraction, Beer-Lambert absorption, animated plus ripple-focused caustics, Fresnel sky reflection and sun glints. Clarity, wave speed, refraction, caustics, persistence, depth, colors and floor style are all adjustable. |
-| Video | MP4 / WEBM / MOV import, drag & drop, and URL download via yt-dlp. A timeline lets you drag **In/Out** handles and shows thumbnails; **I/O/Space/←→** shortcuts work too. Speed runs from 0.25× to 4×. Loop modes are standard (two decoders, no seek hitch), crossfade (blended in the shader) and ping-pong. Real-time frame blending is available. |
-| 4K bake (ffmpeg) | Renders the trimmed loop to a new MP4. Options include motion-compensated or blended 60 fps interpolation, Lanczos upscale to 1440p/4K, unsharp sharpening, and x264/NVENC/QSV/AMF encoding. |
-| Enhancement | Real-time Catmull-Rom upscaling and contrast-adaptive sharpening. Brightness, contrast, saturation, vibrance, gamma and temperature controls. Blur, vignette and grain. Render-scale and FPS caps. |
-| Overlays | Ripple refraction on any video or shader, cursor particles and light trails. Widgets: clock, weather (Open-Meteo), audio visualizer (system-audio loopback) and CPU/RAM rings. |
-| Desktop | Embeds behind icons via `Progman`/`WorkerW`, including the Windows 11 24H2 layout. Falls back to a bottom-most window if that fails and re-attaches after Explorer restarts. Multi-monitor modes: independent, clone or span. |
-| Performance | Per-display pause or mute while a fullscreen or maximized app is focused. Pause or 30 fps throttle on battery or Battery Saver. A paused wallpaper renders nothing. |
-| Tray | Pause/resume, quick wallpaper switching, open settings, re-attach and exit. |
+| Gallery | Live-rendered thumbnails, categories, search, favorites, drag & drop import, "Surprise me" |
+| Water engine | GPU wave simulation with refraction, caustics, sun glints, and tile/mosaic/pebble/sand floors. Koi fish flee your cursor and lily pads drift and bob on the waves. Underwater pool lights. Click effects: splash, shockwave or bubbles |
+| Video | Timeline trimmer with In/Out handles, 0.25×–4× speed, seamless/crossfade/ping-pong loops, real-time frame blending, and a 4K **bake** to MP4 via ffmpeg (60 fps interpolation, Lanczos upscale, NVENC/QSV/AMF) |
+| Images | Photo wallpapers with Ken Burns pan & zoom |
+| Effects | Water ripples over any wallpaper, cursor sparks/light trails, mouse parallax, beat pulse and music-driven ripples (from system audio) |
+| Enhance | CAS sharpening, bicubic upscaling, color grading, blur, vignette, grain, one-click looks |
+| Widgets | Clock (3 styles), weather, audio visualizer, CPU/RAM/battery, custom text, countdown |
+| Automation | Playlist rotation, time-of-day schedule, night mode (dim + warm), crossfade/ripple transitions, global hotkeys |
+| Displays | Per-display wallpapers, clone or span modes, a live monitor map and embedding diagnostics |
+| Performance | Pause for fullscreen games, maximized apps, battery or idle time, plus an app blocklist and an FPS overlay |
+| Settings | Windows wallpaper sync (lock screen / Task View), screenshots, export/import wallpapers, full backup & restore, accent colors, undo/redo |
+
+Default hotkeys: **Ctrl+Alt+P** pause, **Ctrl+Alt+→/←** next/previous, **Ctrl+Alt+M** mute, **Ctrl+Alt+W** open AquaWall.
+
+## Multi-monitor note (fixed in 2.0)
+
+On Windows 11 24H2+ every wallpaper window is a child of `Progman`, stacked between the icons and the static wallpaper (`WorkerW`). Version 1 put `WorkerW` directly below whichever window was attached last, which hid the earlier windows, so only one display showed a wallpaper. Version 2 pushes `WorkerW` to the bottom and re-stacks all windows after every change. **Displays → Run diagnostics** shows the live stacking order.
 
 ## Architecture
 
 ```
-Tauri 2 (Rust)                                   WebView2 (React + WebGL2)
-├─ desktop/win.rs   WorkerW/Progman embedding,   ├─ wallpaper.html  one window per display
-│                   fullscreen/battery/cursor    │   └─ engine/Renderer.ts
-├─ wallpaper.rs     per-monitor windows          │       ├─ WaterSim.ts     height-field sim + pool shader
-├─ input.rs         global cursor → "cursor"     │       ├─ VideoSource.ts  dual-decoder loops, frame blend
-├─ perf.rs          pause/mute/throttle watchdog │       ├─ ShaderSource.ts Shadertoy-compatible
-├─ protocol.rs      wallvid:// range streaming   │       ├─ PostFX.ts       CAS, grading, blur, vignette
-├─ media.rs         yt-dlp + ffmpeg jobs         │       └─ TrailFX.ts      particles + light trail
-├─ audio.rs         WASAPI loopback FFT          └─ index.html     settings UI (panels, timeline, preview)
-├─ sysmon.rs        CPU / RAM
-└─ tray.rs          system tray
+Tauri 2 (Rust)                                    WebView2 (React + WebGL2)
+├─ desktop/win.rs   WorkerW/Progman embedding,    ├─ wallpaper.html  one window per display
+│                   z-order, fullscreen, idle,    │   └─ engine/Renderer.ts  transitions, parallax, beats
+│                   power, process names          │       ├─ WaterSim.ts + PondLife.ts  water, koi, lily pads
+├─ wallpaper.rs     per-monitor windows           │       ├─ VideoSource.ts / ImageSource.ts
+├─ automation.rs    playlist + schedule           │       ├─ ShaderSource.ts + shaderLibrary.ts (24 shaders)
+├─ hotkeys.rs       global shortcuts              │       ├─ PostFX.ts  CAS, grading, parallax, pulse
+├─ perf.rs          pause/mute/dim watchdog       │       └─ TrailFX.ts sparks + light trails
+├─ input.rs         global cursor broadcast       └─ index.html  settings app (gallery, editor, pages)
+├─ protocol.rs      wallvid:// range streaming
+├─ media.rs         yt-dlp + ffmpeg jobs
+├─ audio.rs         WASAPI loopback FFT
+└─ tray.rs          tray menu (favorites, next, mute…)
 ```
-
-Windows behind the desktop icons never receive mouse input. Instead, Rust polls `GetCursorPos` at a configurable rate (120 Hz by default) and broadcasts the position. Each wallpaper window converts it to its own coordinates.
 
 ## Build from source (Windows)
 
-Prerequisites: [Rust](https://rustup.rs), Node.js 20+, Visual Studio Build Tools with the "Desktop development with C++" workload, and the WebView2 runtime (already included in Windows 11).
+Prerequisites: [Rust](https://rustup.rs), Node.js 20+, and Visual Studio Build Tools with the "Desktop development with C++" workload.
 
 ```powershell
 npm install
-powershell -ExecutionPolicy Bypass -File scripts/fetch-tools.ps1   # bundles ffmpeg + yt-dlp (optional)
+powershell -ExecutionPolicy Bypass -File scripts/fetch-tools.ps1   # bundles ffmpeg + yt-dlp
 npm run tauri dev      # run with hot reload
 npm run tauri build    # installers in src-tauri/target/release/bundle/{nsis,msi}
 ```
 
-`npm run dev` also runs the UI in a normal browser (settings at `/`, wallpaper at `/wallpaper.html`). Config is stored in localStorage in that mode, so you can work on the engine without Rust.
+`npm run dev` also runs the UI in a normal browser (settings at `/`, wallpaper at `/wallpaper.html`). Config is stored in localStorage in that mode.
 
-## Notes
-
-- Live ping-pong reverses playback by seeking. For perfectly smooth reverse playback, use **Bake**.
-- Videos must use a codec WebView2 can decode (H.264/VP9/AV1). HEVC/ProRes `.mov` files can be converted with **Bake**.
-- Only download videos you have the right to use.
+Only download videos you have the right to use.

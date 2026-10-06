@@ -1,82 +1,128 @@
-import { useEffect, useState } from "react";
-import { invoke } from "../shared/ipc";
-import { Preview } from "./Preview";
-import { useStore, type Tab } from "./store";
-import { LibraryPanel } from "./panels/LibraryPanel";
-import { WaterPanel } from "./panels/WaterPanel";
-import { VideoPanel } from "./panels/VideoPanel";
-import { ShaderPanel } from "./panels/ShaderPanel";
-import { EffectsPanel } from "./panels/EffectsPanel";
-import { EnhancePanel } from "./panels/EnhancePanel";
-import { WidgetsPanel } from "./panels/WidgetsPanel";
-import { DisplaysPanel } from "./panels/DisplaysPanel";
-import { PerformancePanel } from "./panels/PerformancePanel";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { invoke, videoUrlResolver } from "../shared/ipc";
+import { Icon } from "./icons";
+import { useStore, type Page } from "./store";
+import { setThumbUrlResolver } from "./thumbs";
+import { captureForSave } from "./pages/EditorPage";
+import { GalleryPage } from "./pages/GalleryPage";
+import { EditorPage } from "./pages/EditorPage";
+import { WidgetsPage } from "./pages/WidgetsPage";
+import { AutomationPage } from "./pages/AutomationPage";
+import { DisplaysPage } from "./pages/DisplaysPage";
+import { PerformancePage } from "./pages/PerformancePage";
+import { SettingsPage } from "./pages/SettingsPage";
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "library", label: "Library", icon: "▦" },
-  { id: "water", label: "Water", icon: "≋" },
-  { id: "video", label: "Video", icon: "▶" },
-  { id: "shader", label: "Shader", icon: "✦" },
-  { id: "effects", label: "Effects", icon: "✺" },
-  { id: "enhance", label: "Enhance", icon: "◐" },
-  { id: "widgets", label: "Widgets", icon: "◷" },
-  { id: "displays", label: "Displays", icon: "▭" },
-  { id: "performance", label: "Performance", icon: "⚡" },
+const NAV: { id: Page; label: string; icon: string }[] = [
+  { id: "gallery", label: "Gallery", icon: "gallery" },
+  { id: "editor", label: "Customize", icon: "edit" },
+  { id: "widgets", label: "Widgets", icon: "widgets" },
+  { id: "automation", label: "Automation", icon: "automation" },
+  { id: "displays", label: "Displays", icon: "displays" },
+  { id: "performance", label: "Performance", icon: "performance" },
+  { id: "settings", label: "Settings", icon: "settings" },
 ];
 
+const PAGES: Record<Page, () => ReactElement | null> = {
+  gallery: GalleryPage,
+  editor: EditorPage,
+  widgets: WidgetsPage,
+  automation: AutomationPage,
+  displays: DisplaysPage,
+  performance: PerformancePage,
+  settings: SettingsPage,
+};
+
 export function App() {
-  const { config, tab, setTab, init, selectedId, select, applyPreset, toast } = useStore();
+  const { config, page, go, init, toast, undo, redo, past, future } = useStore();
   const [err, setErr] = useState<string | null>(null);
+
   useEffect(() => {
+    videoUrlResolver().then(setThumbUrlResolver);
     init().catch((e) => setErr(String(e)));
   }, [init]);
 
-  if (err) return <div className="boot">Failed to start: {err}</div>;
-  if (!config) return <div className="boot">Loading AquaWall…</div>;
-  const preset = config.presets.find((p) => p.id === selectedId) ?? config.presets[0];
+  // Global undo / redo (ignored while typing in a field).
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [undo, redo]);
 
-  const Panel = {
-    library: LibraryPanel, water: WaterPanel, video: VideoPanel, shader: ShaderPanel, effects: EffectsPanel,
-    enhance: EnhancePanel, widgets: WidgetsPanel, displays: DisplaysPanel, performance: PerformancePanel,
-  }[tab];
+  // Keep the regular Windows wallpaper in sync with the live one.
+  const lastSynced = useRef<string | null>(null);
+  const activeId = config?.display.defaultPresetId;
+  const syncOn = config?.general.syncStaticWallpaper;
+  useEffect(() => {
+    const st = useStore.getState();
+    if (!syncOn || !activeId || !st.config || lastSynced.current === activeId) return;
+    lastSynced.current = activeId;
+    const p = st.config.presets.find((x) => x.id === activeId);
+    if (!p) return;
+    const t = setTimeout(async () => {
+      try {
+        await invoke("save_image", { dataUrl: await captureForSave(p, st.monitors), purpose: "wallpaper" });
+      } catch { /* not fatal */ }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [activeId, syncOn]);
+
+  useEffect(() => {
+    if (config) document.documentElement.style.setProperty("--accent", config.general.accent || "#3fc2ff");
+  }, [config?.general.accent]);
+
+  if (err) return <div className="boot"><Icon name="info" size={28} /><p>AquaWall could not start</p><code>{err}</code></div>;
+  if (!config) return <div className="boot"><div className="spinner" /><p>Loading AquaWall…</p></div>;
+
+  const Current = PAGES[page];
+  const active = config.presets.find((p) => p.id === config.display.defaultPresetId);
 
   return (
-    <div className="app">
-      <nav className="sidebar">
-        <div className="brand"><span className="logo">◉</span> AquaWall</div>
-        {TABS.map((t) => (
-          <button key={t.id} className={`nav ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
-            <span className="nav-icon">{t.icon}</span>{t.label}
-          </button>
-        ))}
-        <div className="sidebar-foot">
-          <button className={`btn block ${config.paused ? "primary" : "ghost"}`} onClick={() => invoke("set_paused", { paused: !config.paused })}>
-            {config.paused ? "▶ Resume wallpaper" : "❚❚ Pause wallpaper"}
-          </button>
+    <div className="shell">
+      <nav className="rail">
+        <div className="brand">
+          <div className="brand-mark"><Icon name="water" size={20} /></div>
+          <div className="brand-text"><b>AquaWall</b><span>Live wallpapers</span></div>
+        </div>
+        <div className="nav-list">
+          {NAV.map((n) => (
+            <button key={n.id} className={`nav ${page === n.id ? "active" : ""}`} onClick={() => go(n.id)}>
+              <Icon name={n.icon} size={18} />
+              <span>{n.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="rail-foot">
+          <div className="now">
+            <span className={`dot ${config.paused ? "off" : "on"}`} />
+            <div>
+              <small>{config.paused ? "Paused" : "On your desktop"}</small>
+              <b title={active?.name}>{active?.name ?? "—"}</b>
+            </div>
+          </div>
+          <div className="transport">
+            <button title="Previous wallpaper" onClick={() => invoke("step_wallpaper", { dir: -1 })}><Icon name="prev" size={15} /></button>
+            <button title={config.paused ? "Resume" : "Pause"} className="big" onClick={() => invoke("set_paused", { paused: !config.paused })}>
+              <Icon name={config.paused ? "play" : "pause"} size={16} />
+            </button>
+            <button title="Next wallpaper" onClick={() => invoke("step_wallpaper", { dir: 1 })}><Icon name="next" size={15} /></button>
+            <button title="Surprise me" onClick={() => invoke("step_wallpaper", { dir: 0 })}><Icon name="shuffle" size={15} /></button>
+          </div>
+          <div className="undo-row">
+            <button disabled={!past.length} onClick={undo} title="Undo (Ctrl+Z)"><Icon name="undo" size={14} /> Undo</button>
+            <button disabled={!future.length} onClick={redo} title="Redo (Ctrl+Y)"><Icon name="redo" size={14} /> Redo</button>
+          </div>
         </div>
       </nav>
-
-      <main className="content">
-        <header className="topbar">
-          <select className="preset-select" value={preset.id} onChange={(e) => select(e.target.value)}>
-            {config.presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <span className="dim small">Editing changes apply live</span>
-          <span className="spacer" />
-          <button className="btn primary" onClick={() => applyPreset(preset.id)}>Set as wallpaper (all displays)</button>
-        </header>
-        <div className="panel"><Panel /></div>
+      <main className="main">
+        <Current />
       </main>
-
-      <aside className="side-preview">
-        <Preview preset={preset} />
-        <div className="preview-meta">
-          <b>{preset.name}</b>
-          <span className="dim small">{preset.kind === "water" ? "Interactive water pool" : preset.kind === "video" ? "Video wallpaper" : "Shader wallpaper"}</span>
-        </div>
-      </aside>
-
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className={`toast ${toast.kind}`}><Icon name={toast.kind === "error" ? "info" : "check"} size={16} />{toast.msg}</div>}
     </div>
   );
 }

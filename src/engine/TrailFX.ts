@@ -53,6 +53,17 @@ export class TrailFX {
     this.size[i] = s; this.life[i] = life; this.maxLife[i] = life; this.hue[i] = hue;
   }
 
+  /** Radial burst of particles (click effect), works even with trails off. */
+  burst(x: number, y: number, n: number, pxScale: number, color: string) {
+    this.burstColor = color;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = (60 + Math.random() * 260) * pxScale;
+      this.spawn(x, y, Math.cos(a) * sp, Math.sin(a) * sp, (5 + Math.random() * 12) * pxScale, 0.6 + Math.random() * 0.8, Math.random());
+    }
+  }
+  burstColor = "#bff4ff";
+
   /**
    * @param x,y   cursor in pixels (bottom-left origin)
    * @param vx,vy cursor velocity px/s

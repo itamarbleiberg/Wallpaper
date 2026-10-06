@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Renderer } from "../engine/Renderer";
 import { currentLabel, invoke, listen, videoUrlResolver } from "../shared/ipc";
 import type { AppConfig, CursorEvent, PlaybackState, WallpaperTarget } from "../shared/types";
-import { normalizeConfig, presetForTarget } from "../shared/types";
-import { Widgets } from "../widgets/Widgets";
+import { inWindow, normalizeConfig, presetForTarget } from "../shared/types";
+import { Widgets, rainFromCode, useWeather } from "../widgets/Widgets";
 
 /** Runs inside each embedded wallpaper window (one per display, or one spanning). */
 export function WallpaperApp() {
@@ -11,15 +11,16 @@ export function WallpaperApp() {
   const rendererRef = useRef<Renderer | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [target, setTarget] = useState<WallpaperTarget | null>(null);
-  const [playback, setPlayback] = useState<PlaybackState>({ paused: false, muted: false, throttle: false, reason: "" });
+  const [playback, setPlayback] = useState<PlaybackState>({ paused: false, muted: false, throttle: false, dim: false, reason: "" });
   const [error, setError] = useState<string | null>(null);
   const [spectrum, setSpectrum] = useState<number[]>([]);
+  const [fps, setFps] = useState(0);
+  const [minute, setMinute] = useState(0);
   const targetRef = useRef<WallpaperTarget | null>(null);
   const configRef = useRef<AppConfig | null>(null);
   targetRef.current = target;
   configRef.current = config;
 
-  // Boot: renderer + IPC subscriptions.
   useEffect(() => {
     let disposed = false;
     const unsubs: (() => void)[] = [];
@@ -30,6 +31,7 @@ export function WallpaperApp() {
         rendererRef.current = new Renderer(canvasRef.current!, {
           resolveVideoUrl: resolve,
           onError: (_src, msg) => setError(msg),
+          onFps: setFps,
         });
       } catch (e) {
         setError(String((e as Error).message ?? e));
@@ -40,7 +42,7 @@ export function WallpaperApp() {
       const pb = await invoke<Record<string, PlaybackState>>("get_playback");
       if (disposed) return;
       setConfig(cfg);
-      setTarget(targets.find((t) => t.label === label) ?? null);
+      setTarget(targets.find((t) => t.label === label) ?? targets[0] ?? null);
       if (pb[label]) setPlayback(pb[label]);
 
       unsubs.push(await listen<unknown>("config-changed", (c) => setConfig(normalizeConfig(c))));
@@ -61,7 +63,7 @@ export function WallpaperApp() {
       unsubs.push(
         await listen<number[]>("audio-spectrum", (bands) => {
           rendererRef.current?.setAudio(bands);
-          setSpectrum(bands);
+          if (configRef.current?.widgets.visualizer.enabled) setSpectrum(bands);
         }),
       );
     })();
@@ -74,9 +76,11 @@ export function WallpaperApp() {
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mousedown", onMove);
     window.addEventListener("mouseup", onMove);
+    const tick = setInterval(() => setMinute((m) => m + 1), 30_000);
 
     return () => {
       disposed = true;
+      clearInterval(tick);
       unsubs.forEach((u) => u());
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mousedown", onMove);
@@ -87,6 +91,12 @@ export function WallpaperApp() {
   }, []);
 
   const preset = useMemo(() => (config ? presetForTarget(config, target?.presetId) : null), [config, target?.presetId]);
+
+  useEffect(() => {
+    const r = rendererRef.current;
+    if (!r || !config) return;
+    r.transition = config.transitions;
+  }, [config?.transitions]);
 
   useEffect(() => {
     if (preset) rendererRef.current?.setPreset(preset);
@@ -100,21 +110,32 @@ export function WallpaperApp() {
     r.setThrottle(playback.throttle);
   }, [playback]);
 
-  // Widgets live on the primary display's area inside this window.
+  // Night mode + idle dimming.
+  useEffect(() => {
+    const r = rendererRef.current;
+    if (!r || !config) return;
+    const n = config.night;
+    const night = n.enabled && inWindow(n.start, n.end);
+    let brightness = night ? 1 - n.dim : 1;
+    if (playback.dim) brightness *= 0.4;
+    r.setGlobalAdjust({ brightness, warmth: night ? n.warmth * 0.9 : 0 });
+  }, [config?.night, playback.dim, minute]);
+
+  // Weather: shared by the widget and rain sync.
+  const w = config?.widgets.weather;
+  const weather = useWeather(w?.latitude ?? 0, w?.longitude ?? 0, w?.units ?? "celsius", !!w && (w.enabled || w.syncRain));
+  useEffect(() => {
+    rendererRef.current?.setRain(w?.syncRain && weather ? rainFromCode(weather.code) : 0);
+  }, [w?.syncRain, weather]);
+
   const widgetArea = useMemo(() => {
-    if (!target) return { left: 0, top: 0, width: "100%", height: "100%", show: true };
+    if (!target) return { left: 0, top: 0, width: "100%" as number | string, height: "100%" as number | string, show: true };
     const dpr = window.devicePixelRatio || 1;
     const m = target.monitors.find((x) => x.primary) ?? target.monitors[0];
     const showAll = config?.widgets.allDisplays ?? false;
     const show = !!m && (showAll || m.primary || target.monitors.length > 1);
     if (!m) return { left: 0, top: 0, width: "100%", height: "100%", show };
-    return {
-      left: (m.rect.x - target.rect.x) / dpr,
-      top: (m.rect.y - target.rect.y) / dpr,
-      width: m.rect.w / dpr,
-      height: m.rect.h / dpr,
-      show,
-    };
+    return { left: (m.rect.x - target.rect.x) / dpr, top: (m.rect.y - target.rect.y) / dpr, width: m.rect.w / dpr, height: m.rect.h / dpr, show };
   }, [target, config?.widgets.allDisplays]);
 
   return (
@@ -122,7 +143,13 @@ export function WallpaperApp() {
       <canvas ref={canvasRef} style={{ position: "fixed", inset: 0, width: "100%", height: "100%", display: "block" }} />
       {config && widgetArea.show && (
         <div style={{ position: "fixed", left: widgetArea.left, top: widgetArea.top, width: widgetArea.width, height: widgetArea.height, pointerEvents: "none" }}>
-          <Widgets config={config.widgets} spectrum={spectrum} paused={playback.paused} />
+          <Widgets config={config.widgets} spectrum={spectrum} paused={playback.paused} weather={weather} />
+        </div>
+      )}
+      {config?.general.showHud && preset && (
+        <div className="aq-hud">
+          {Math.round(fps)} FPS · {canvasRef.current?.width}×{canvasRef.current?.height} · {preset.name}
+          {playback.reason && ` · ${playback.reason}`}
         </div>
       )}
       {error && <div className="aq-error">{error}</div>}
