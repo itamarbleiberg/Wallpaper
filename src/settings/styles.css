@@ -128,7 +128,7 @@ p { margin: 0; line-height: 1.5; }
 .select { width: 100%; padding-right: 28px; }
 .select.slim { width: auto; padding: 5px 26px 5px 9px; font-size: 12.5px; }
 .input { width: 100%; }
-.input.time { width: 132px; flex: none; }
+.input.time { width: 128px; flex: 0 1 128px; min-width: 104px; }
 .select:focus, .input:focus { border-color: var(--accent); }
 .select option { background: #101826; }
 .color { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
@@ -178,7 +178,7 @@ p { margin: 0; line-height: 1.5; }
 .error-box, .diag { margin: 4px 0; padding: 10px 12px; border-radius: 10px; font: 12px/1.5 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; max-height: 220px; overflow: auto; }
 .error-box { color: #ffc2c8; background: rgba(255, 107, 122, 0.07); border: 1px solid rgba(255, 107, 122, 0.25); }
 .diag { color: var(--muted); background: rgba(5, 10, 17, 0.6); border: 1px solid var(--line); }
-.inline-row { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+.inline-row { display: flex; gap: 8px; align-items: center; padding: 4px 0; min-width: 0; flex-wrap: wrap; }
 .row-actions { display: flex; gap: 8px; align-items: center; padding-top: 6px; }
 .btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; padding: 4px 0; }
 .path-line { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 6px 10px; border-radius: 8px; background: rgba(5, 10, 17, 0.5); border: 1px solid var(--line); }

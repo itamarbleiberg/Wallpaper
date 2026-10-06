@@ -88,7 +88,7 @@ export function WidgetsPage() {
         </WidgetCard>
 
         <Card title="Weather sync" subtitle="When it rains outside, rain falls on your water wallpapers" icon="water" right={<Toggle label="" value={w.weather.syncRain} onChange={(v) => update((c) => { c.widgets.weather.syncRain = v; })} />}>
-          <p className="muted small">Uses the weather location above, even when the weather widget is hidden. It works on water wallpapers and on any wallpaper with water ripples turned on.</p>
+          <p className="muted small">Uses the location set in the Weather card, even when that widget is hidden. It works on water wallpapers and on any wallpaper with water ripples turned on.</p>
         </Card>
 
         <WidgetCard k="visualizer" title="Audio visualizer" subtitle="Reacts to everything playing on your PC" icon="volume">
