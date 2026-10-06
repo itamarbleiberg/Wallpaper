@@ -1,5 +1,5 @@
 //! Platform layer: desktop embedding, foreground/fullscreen detection, power,
-//! cursor polling and CPU/RAM sampling.
+//! idle time, cursor polling and CPU/RAM sampling.
 
 use crate::wallpaper::Rect;
 
@@ -25,6 +25,8 @@ pub struct ForegroundState {
     pub monitor: Rect,
     pub fullscreen: bool,
     pub maximized: bool,
+    /// lower-case executable name, e.g. "photoshop.exe"
+    pub exe: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -32,6 +34,7 @@ pub struct PowerState {
     pub on_battery: bool,
     pub percent: u8,
     pub saver: bool,
+    pub has_battery: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -47,4 +50,6 @@ pub struct SysStats {
     pub mem: f32,
     pub mem_used_gb: f32,
     pub mem_total_gb: f32,
+    pub battery: Option<u8>,
+    pub charging: bool,
 }

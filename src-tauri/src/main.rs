@@ -1,9 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
+mod automation;
 mod commands;
 mod config;
 mod desktop;
+mod hotkeys;
 mod input;
 mod media;
 mod perf;
@@ -23,6 +25,7 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
+        .plugin(hotkeys::plugin())
         .register_asynchronous_uri_scheme_protocol("wallvid", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             std::thread::spawn(move || responder.respond(protocol::handle(&app, &request)));
@@ -30,12 +33,17 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(state::AppState::load(&handle)?);
+            app.manage(hotkeys::HotkeyMap::default());
             tray::create(&handle)?;
             wallpaper::sync(&handle, true);
+            for e in hotkeys::apply(&handle) {
+                eprintln!("[aquawall] hotkey: {e}");
+            }
             perf::spawn(handle.clone());
             input::spawn(handle.clone());
             sysmon::spawn(handle.clone());
             audio::spawn(handle.clone());
+            automation::spawn(handle.clone());
             if !std::env::args().any(|a| a == "--minimized") {
                 tray::show_settings(&handle);
             }
@@ -55,19 +63,25 @@ fn main() {
             commands::list_monitors,
             commands::get_targets,
             commands::get_playback,
+            commands::diagnostics,
             commands::reattach,
             commands::set_paused,
+            commands::step_wallpaper,
+            commands::hotkey_errors,
+            commands::list_window_apps,
             commands::tool_status,
             commands::import_url,
             commands::bake_video,
             commands::cancel_job,
             commands::open_folder,
+            commands::save_image,
+            commands::write_text_file,
+            commands::read_text_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while building AquaWall");
 
     app.run(|app, event| match event {
-        // Keep running in the tray when windows close; only exit via the tray.
         RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
         RunEvent::Exit => wallpaper::shutdown(app),
         _ => {}

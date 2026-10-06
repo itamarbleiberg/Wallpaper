@@ -1,6 +1,7 @@
-//! Performance watchdog: pauses/mutes/throttles wallpapers while fullscreen or
-//! maximized apps are focused or the laptop is on battery, keeps the windows
-//! embedded after explorer.exe restarts, and reacts to display changes.
+//! Performance watchdog: pauses/mutes/throttles/dims wallpapers while
+//! fullscreen or maximized apps are focused, on battery, when the PC is idle
+//! or a blocked app is in front. Also keeps windows embedded after
+//! explorer.exe restarts and reacts to display changes.
 
 use crate::desktop;
 use crate::state::{AppState, PlaybackState};
@@ -16,6 +17,7 @@ fn apply(action: &str, label: &str, st: &mut PlaybackState, reasons: &mut Vec<St
         "pause" => st.paused = true,
         "mute" => st.muted = true,
         "throttle" => st.throttle = true,
+        "dim" => st.dim = true,
         _ => return,
     }
     reasons.push(label.to_string());
@@ -35,15 +37,23 @@ pub fn spawn(app: AppHandle) {
             let fg = desktop::foreground_state();
             let d3d = desktop::d3d_fullscreen();
             let pw = desktop::power();
+            let idle = desktop::idle_seconds();
             let targets = st.targets.lock().unwrap().clone();
             let p = &s.performance;
+            let blocked = fg
+                .as_ref()
+                .map(|f| !f.exe.is_empty() && p.blocked_apps.iter().any(|b| b.trim().eq_ignore_ascii_case(&f.exe)))
+                .unwrap_or(false);
 
             let mut states = HashMap::new();
             for t in &targets {
-                let mut ps = PlaybackState { paused: s.paused, ..Default::default() };
+                let mut ps = PlaybackState { paused: s.paused, muted: s.muted, ..Default::default() };
                 let mut reasons = vec![];
                 if s.paused {
                     reasons.push("paused manually".to_string());
+                }
+                if blocked {
+                    apply("pause", "blocked app in front", &mut ps, &mut reasons);
                 }
                 if let Some(f) = &fg {
                     if f.monitor.intersects(&t.rect) {
@@ -59,6 +69,9 @@ pub fn spawn(app: AppHandle) {
                 }
                 if pw.saver && p.pause_on_battery_saver {
                     apply("pause", "battery saver", &mut ps, &mut reasons);
+                }
+                if p.idle_enabled && idle as f64 >= p.idle_minutes.max(0.5) * 60.0 {
+                    apply(&p.idle_action, "PC idle", &mut ps, &mut reasons);
                 }
                 ps.reason = reasons.join(", ");
                 if t.attach_mode == "fallback" && !ps.paused {
@@ -80,7 +93,6 @@ pub fn spawn(app: AppHandle) {
                 last = states;
             }
 
-            // Every ~3 s: detect lost embedding (explorer restart) or display changes.
             if tick % 4 == 0 {
                 let lost = targets.iter().any(|t| !desktop::is_alive(t.hwnd, t.parent));
                 let monitors = wallpaper::list_monitors(&app);

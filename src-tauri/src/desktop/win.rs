@@ -2,35 +2,37 @@
 //!
 //! Desktop embedding works by asking Progman to spawn the "WorkerW" layer that
 //! sits between the wallpaper bitmap and the desktop icons (undocumented
-//! message 0x052C), then re-parenting our webview window into it.
+//! message 0x052C), then re-parenting our webview windows into it.
 //!
 //! Two shell layouts exist:
 //!  * Legacy (Win10 / Win11 before 24H2): after 0x052C the icons
 //!    (SHELLDLL_DefView) live in a top-level WorkerW, and a *sibling* WorkerW
-//!    right behind it is the wallpaper layer. We become a child of that one.
+//!    right behind it is the wallpaper layer. We become children of that one.
 //!  * Win11 24H2+: Progman keeps SHELLDLL_DefView and the WorkerW as its own
-//!    children. We become a child of Progman, inserted in the z-order between
-//!    DefView (icons, on top) and WorkerW (static wallpaper, below). Progman
-//!    uses WS_EX_NOREDIRECTIONBITMAP, so our child must be WS_EX_LAYERED.
+//!    children. Our windows become children of Progman, stacked between
+//!    DefView (icons, top) and WorkerW (static wallpaper, bottom). Progman
+//!    uses WS_EX_NOREDIRECTIONBITMAP, so our children must be WS_EX_LAYERED.
 //!
-//! If none of this works we fall back to a borderless window pinned to the
-//! bottom of the z-order (covers icons but still behaves like a wallpaper).
+//! Multi-monitor z-order: every wallpaper window is inserted directly below
+//! DefView and the WorkerW is then pushed to the *bottom* of Progman's
+//! children. (Placing WorkerW "below the window just attached" would put it
+//! above every previously attached window and hide them - that was the
+//! "only my second monitor works" bug.)
 
 use super::{AttachResult, CpuSample, ForegroundState, PowerState, SysStats};
 use crate::wallpaper::Rect;
 use std::ptr::{null, null_mut};
 use tauri::AppHandle;
-use windows_sys::Win32::Foundation::{BOOL, FILETIME, HWND, LPARAM, POINT, RECT};
-use windows_sys::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-};
+use windows_sys::Win32::Foundation::{CloseHandle, BOOL, FILETIME, HWND, LPARAM, POINT, RECT, SYSTEMTIME};
+use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-use windows_sys::Win32::System::Threading::{GetCurrentProcessId, GetSystemTimes};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
-use windows_sys::Win32::UI::Shell::{
-    SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
+use windows_sys::Win32::System::SystemInformation::{GetLocalTime, GetTickCount, GlobalMemoryStatusEx, MEMORYSTATUSEX};
+use windows_sys::Win32::System::Threading::{
+    GetCurrentProcessId, GetSystemTimes, OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_LBUTTON};
+use windows_sys::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 fn wide(s: &str) -> Vec<u16> {
@@ -61,7 +63,6 @@ struct Host {
 unsafe extern "system" fn enum_find_workerw(top: HWND, lparam: LPARAM) -> BOOL {
     let defview = find(top, null_mut(), "SHELLDLL_DefView");
     if !defview.is_null() {
-        // The wallpaper WorkerW is the next WorkerW sibling after the icon host.
         let worker = find(null_mut(), top, "WorkerW");
         if !worker.is_null() {
             *(lparam as *mut HWND) = worker;
@@ -76,13 +77,10 @@ unsafe fn find_host() -> Option<Host> {
     if progman.is_null() {
         return None;
     }
-    // Ask Progman to create the WorkerW layer. Different Windows builds react
-    // to different parameters, so send both known variants.
     let mut res: usize = 0;
     SendMessageTimeoutW(progman, 0x052C, 0xD, 0x1, SMTO_NORMAL, 1000, &mut res);
     SendMessageTimeoutW(progman, 0x052C, 0, 0, SMTO_NORMAL, 1000, &mut res);
 
-    // Windows 11 24H2+ layout.
     let defview = find(progman, null_mut(), "SHELLDLL_DefView");
     if !defview.is_null() {
         let workerw = find(progman, null_mut(), "WorkerW");
@@ -91,14 +89,12 @@ unsafe fn find_host() -> Option<Host> {
         }
     }
 
-    // Legacy layout.
     let mut worker: HWND = null_mut();
     EnumWindows(Some(enum_find_workerw), &mut worker as *mut HWND as LPARAM);
     if !worker.is_null() {
         return Some(Host { parent: worker, mode: "workerw", defview: null_mut(), workerw: worker });
     }
 
-    // Icons still in Progman but no WorkerW: draw as a Progman child behind DefView.
     if !defview.is_null() {
         return Some(Host { parent: progman, mode: "progman", defview, workerw: null_mut() });
     }
@@ -141,12 +137,12 @@ pub fn attach(hwnd_i: isize, rect: &Rect) -> AttachResult {
                     SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW,
                 );
                 if host.mode == "progman-24h2" && !host.workerw.is_null() {
-                    // Keep the static-wallpaper WorkerW below us.
-                    SetWindowPos(host.workerw, hwnd, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    // Static wallpaper goes to the very bottom so it never
+                    // covers any of our (possibly several) wallpaper windows.
+                    SetWindowPos(host.workerw, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                 }
                 return AttachResult { mode: host.mode, parent: host.parent as isize };
             }
-            // SetParent failed: restore a top-level style before falling back.
             SetWindowLongPtrW(hwnd, GWL_STYLE, ((new_style & !WS_CHILD) | WS_POPUP) as isize);
         }
         fallback(hwnd, rect);
@@ -154,25 +150,37 @@ pub fn attach(hwnd_i: isize, rect: &Rect) -> AttachResult {
     }
 }
 
-unsafe fn fallback(hwnd: HWND, rect: &Rect) {
-    let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-    SetWindowLongPtrW(
-        hwnd,
-        GWL_EXSTYLE,
-        ((ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as isize,
-    );
-    SetWindowPos(
-        hwnd,
-        HWND_BOTTOM,
-        rect.x,
-        rect.y,
-        rect.w,
-        rect.h,
-        SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW,
-    );
+/// Re-assert the stacking order of all wallpaper windows after a sync:
+/// icons on top, then every wallpaper window, then the static WorkerW.
+pub fn restack(hwnds: &[isize]) {
+    unsafe {
+        let progman = find(null_mut(), null_mut(), "Progman");
+        if progman.is_null() {
+            return;
+        }
+        let defview = find(progman, null_mut(), "SHELLDLL_DefView");
+        let workerw = find(progman, null_mut(), "WorkerW");
+        if defview.is_null() || workerw.is_null() {
+            return; // legacy layout: siblings inside one WorkerW never overlap
+        }
+        let mut after = defview;
+        for h in hwnds {
+            let h = *h as HWND;
+            if GetParent(h) == progman {
+                SetWindowPos(h, after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                after = h;
+            }
+        }
+        SetWindowPos(workerw, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
 }
 
-/// Re-assert bottom-most z-order (only used in fallback mode).
+unsafe fn fallback(hwnd: HWND, rect: &Rect) {
+    let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ((ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as isize);
+    SetWindowPos(hwnd, HWND_BOTTOM, rect.x, rect.y, rect.w, rect.h, SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+}
+
 pub fn keep_bottom(hwnd: isize) {
     unsafe {
         SetWindowPos(hwnd as HWND, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -190,8 +198,6 @@ pub fn detach(hwnd: isize) {
     }
 }
 
-/// True while our window and its desktop parent still exist (explorer.exe
-/// restarts destroy the WorkerW/Progman windows).
 pub fn is_alive(hwnd: isize, parent: isize) -> bool {
     unsafe {
         let h = hwnd as HWND;
@@ -205,13 +211,26 @@ pub fn is_alive(hwnd: isize, parent: isize) -> bool {
     }
 }
 
-/// Repaint the normal static wallpaper (removes the last live frame on exit).
-pub fn refresh_wallpaper() {
+fn current_wallpaper() -> Vec<u16> {
+    let mut buf = vec![0u16; 520];
     unsafe {
-        let mut buf = [0u16; 520];
         SystemParametersInfoW(SPI_GETDESKWALLPAPER, buf.len() as u32, buf.as_mut_ptr() as *mut _, 0);
+    }
+    buf
+}
+
+pub fn refresh_wallpaper() {
+    let mut buf = current_wallpaper();
+    unsafe {
         SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, buf.as_mut_ptr() as *mut _, SPIF_SENDCHANGE);
     }
+}
+
+/// Set the regular Windows (static) wallpaper - used to keep the lock
+/// screen / startup / Task View wallpaper matching the live one.
+pub fn set_static_wallpaper(path: &str) -> bool {
+    let mut w = wide(path);
+    unsafe { SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, w.as_mut_ptr() as *mut _, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE) != 0 }
 }
 
 const SHELL_CLASSES: &[&str] = &[
@@ -223,12 +242,35 @@ const SHELL_CLASSES: &[&str] = &[
     "XamlExplorerHostIslandWindow",
     "NotifyIconOverflowWindow",
     "TopLevelWindowForOverflowXamlIsland",
+    "ForegroundStaging",
+    "MultitaskingViewFrame",
 ];
+
+unsafe fn process_name(pid: u32) -> String {
+    let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+    if h.is_null() {
+        return String::new();
+    }
+    let mut buf = [0u16; 1024];
+    let mut len = buf.len() as u32;
+    let ok = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut len);
+    CloseHandle(h);
+    if ok == 0 {
+        return String::new();
+    }
+    let full = String::from_utf16_lossy(&buf[..len as usize]);
+    full.rsplit(['\\', '/']).next().unwrap_or("").to_ascii_lowercase()
+}
+
+unsafe fn is_cloaked(h: HWND) -> bool {
+    let mut cloaked: u32 = 0;
+    DwmGetWindowAttribute(h, DWMWA_CLOAKED as _, &mut cloaked as *mut u32 as *mut _, 4) == 0 && cloaked != 0
+}
 
 pub fn foreground_state() -> Option<ForegroundState> {
     unsafe {
         let fg = GetForegroundWindow();
-        if fg.is_null() || IsWindowVisible(fg) == 0 {
+        if fg.is_null() || IsWindowVisible(fg) == 0 || is_cloaked(fg) {
             return None;
         }
         let mut pid = 0u32;
@@ -238,6 +280,11 @@ pub fn foreground_state() -> Option<ForegroundState> {
         }
         let cls = class_name(fg);
         if SHELL_CLASSES.iter().any(|c| *c == cls) {
+            return None;
+        }
+        // Click-through overlays (game bars, recording HUDs) are not "apps".
+        let ex = GetWindowLongPtrW(fg, GWL_EXSTYLE) as u32;
+        if ex & WS_EX_TRANSPARENT != 0 || ex & WS_EX_TOOLWINDOW != 0 && ex & WS_EX_TOPMOST != 0 {
             return None;
         }
         let mut wr: RECT = std::mem::zeroed();
@@ -256,11 +303,42 @@ pub fn foreground_state() -> Option<ForegroundState> {
             monitor: Rect { x: m.left, y: m.top, w: m.right - m.left, h: m.bottom - m.top },
             fullscreen,
             maximized: IsZoomed(fg) != 0,
+            exe: process_name(pid),
         })
     }
 }
 
-/// Exclusive-fullscreen D3D games and presentation mode.
+unsafe extern "system" fn enum_apps(h: HWND, lparam: LPARAM) -> BOOL {
+    let out = &mut *(lparam as *mut Vec<String>);
+    if IsWindowVisible(h) == 0 || is_cloaked(h) || GetWindowTextLengthW(h) == 0 {
+        return 1;
+    }
+    let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
+    if ex & WS_EX_TOOLWINDOW != 0 {
+        return 1;
+    }
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(h, &mut pid);
+    if pid == GetCurrentProcessId() {
+        return 1;
+    }
+    let name = process_name(pid);
+    if !name.is_empty() && name != "explorer.exe" && !out.contains(&name) {
+        out.push(name);
+    }
+    1
+}
+
+/// Executable names of apps that currently have visible windows.
+pub fn list_window_apps() -> Vec<String> {
+    let mut v: Vec<String> = vec![];
+    unsafe {
+        EnumWindows(Some(enum_apps), &mut v as *mut Vec<String> as LPARAM);
+    }
+    v.sort();
+    v
+}
+
 pub fn d3d_fullscreen() -> bool {
     unsafe {
         let mut state = 0;
@@ -281,12 +359,31 @@ pub fn power() -> PowerState {
             on_battery: s.ACLineStatus == 0,
             percent: if s.BatteryLifePercent == 255 { 100 } else { s.BatteryLifePercent },
             saver: s.SystemStatusFlag == 1,
+            has_battery: s.BatteryFlag != 128 && s.BatteryFlag != 255,
         }
     }
 }
 
-/// Global cursor position in physical pixels + left button state. Wallpaper
-/// windows sit behind the icons and never receive mouse input themselves.
+/// Seconds since the last keyboard/mouse input (system wide).
+pub fn idle_seconds() -> u64 {
+    unsafe {
+        let mut lii = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+        if GetLastInputInfo(&mut lii) == 0 {
+            return 0;
+        }
+        (GetTickCount().wrapping_sub(lii.dwTime) / 1000) as u64
+    }
+}
+
+/// Minutes since local midnight.
+pub fn local_minutes() -> u32 {
+    unsafe {
+        let mut st: SYSTEMTIME = std::mem::zeroed();
+        GetLocalTime(&mut st);
+        st.wHour as u32 * 60 + st.wMinute as u32
+    }
+}
+
 pub fn cursor(_app: &AppHandle) -> Option<(i32, i32, bool)> {
     unsafe {
         let mut p = POINT { x: 0, y: 0 };
@@ -298,7 +395,6 @@ pub fn cursor(_app: &AppHandle) -> Option<(i32, i32, bool)> {
     }
 }
 
-/// Is the cursor over the desktop (icons / wallpaper) rather than an app window?
 pub fn over_desktop(x: i32, y: i32, own: &[isize]) -> bool {
     unsafe {
         let h = WindowFromPoint(POINT { x, y });
@@ -326,7 +422,7 @@ pub fn sys_stats(prev: &mut CpuSample) -> SysStats {
         let mut cpu = 0.0;
         if GetSystemTimes(&mut idle, &mut kernel, &mut user) != 0 {
             let idle_t = ft(&idle);
-            let total = ft(&kernel) + ft(&user); // kernel time includes idle
+            let total = ft(&kernel) + ft(&user);
             let di = idle_t.saturating_sub(prev.idle);
             let dt = total.saturating_sub(prev.total);
             if prev.total != 0 && dt > 0 {
@@ -342,11 +438,54 @@ pub fn sys_stats(prev: &mut CpuSample) -> SysStats {
             total = ms.ullTotalPhys as f32 / 1_073_741_824.0;
             used = (ms.ullTotalPhys - ms.ullAvailPhys) as f32 / 1_073_741_824.0;
         }
+        let p = power();
         SysStats {
             cpu,
             mem: if total > 0.0 { used / total * 100.0 } else { 0.0 },
             mem_used_gb: used,
             mem_total_gb: total,
+            battery: if p.has_battery { Some(p.percent) } else { None },
+            charging: !p.on_battery,
         }
     }
+}
+
+/// Human-readable dump of how each wallpaper window is embedded.
+pub fn diagnostics(windows: &[(String, isize)]) -> Vec<String> {
+    let mut out = vec![];
+    unsafe {
+        for (label, hwnd) in windows {
+            let h = *hwnd as HWND;
+            if IsWindow(h) == 0 {
+                out.push(format!("{label}: window handle is gone"));
+                continue;
+            }
+            let parent = GetParent(h);
+            let mut r: RECT = std::mem::zeroed();
+            GetWindowRect(h, &mut r);
+            out.push(format!(
+                "{label}: parent={} visible={} screen=({},{} {}x{}) layered={}",
+                if parent.is_null() { "none".to_string() } else { class_name(parent) },
+                IsWindowVisible(h) != 0,
+                r.left,
+                r.top,
+                r.right - r.left,
+                r.bottom - r.top,
+                (GetWindowLongPtrW(h, GWL_EXSTYLE) as u32 & WS_EX_LAYERED) != 0
+            ));
+        }
+        // Z-order of the host's children (top -> bottom).
+        let progman = find(null_mut(), null_mut(), "Progman");
+        if !progman.is_null() {
+            let mut names = vec![];
+            let mut c = GetWindow(progman, GW_CHILD);
+            while !c.is_null() && names.len() < 16 {
+                let tag = windows.iter().find(|(_, w)| *w as HWND == c).map(|(l, _)| l.clone());
+                names.push(tag.unwrap_or_else(|| class_name(c)));
+                c = GetWindow(c, GW_HWNDNEXT);
+            }
+            out.push(format!("Progman children (top->bottom): {}", names.join(" > ")));
+        }
+    }
+    out
 }

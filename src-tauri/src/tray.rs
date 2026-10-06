@@ -1,11 +1,13 @@
-//! System tray: pause/resume, quick preset switching, settings, exit.
+//! System tray: pause/resume, mute, next/previous, quick preset switching,
+//! settings, re-attach, exit.
 
+use crate::automation;
+use crate::hotkeys;
 use crate::state::AppState;
 use crate::wallpaper;
-use serde_json::{json, Value};
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, Wry};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Manager, Wry};
 
 const TRAY_ID: &str = "aquawall-tray";
 
@@ -21,19 +23,36 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let s = app.state::<AppState>().settings();
     let active = s.default_preset();
     let pause = CheckMenuItem::with_id(app, "pause", "Pause wallpaper", true, s.paused, None::<&str>)?;
-    let mut items: Vec<CheckMenuItem<Wry>> = vec![];
+    let mute = CheckMenuItem::with_id(app, "mute", "Mute wallpaper audio", true, s.muted, None::<&str>)?;
+    let next = MenuItem::with_id(app, "next", "Next wallpaper", true, None::<&str>)?;
+    let prev = MenuItem::with_id(app, "prev", "Previous wallpaper", true, None::<&str>)?;
+    let random = MenuItem::with_id(app, "random", "Surprise me", true, None::<&str>)?;
+
+    let mut favs: Vec<CheckMenuItem<Wry>> = vec![];
+    let mut all: Vec<CheckMenuItem<Wry>> = vec![];
     for p in &s.presets {
         let name = if p.name.is_empty() { p.id.clone() } else { p.name.clone() };
-        items.push(CheckMenuItem::with_id(app, format!("preset:{}", p.id), name, true, p.id == active, None::<&str>)?);
+        if p.favorite {
+            favs.push(CheckMenuItem::with_id(app, format!("fav:{}", p.id), format!("★ {name}"), true, p.id == active, None::<&str>)?);
+        }
+        all.push(CheckMenuItem::with_id(app, format!("preset:{}", p.id), name, true, p.id == active, None::<&str>)?);
     }
-    let refs: Vec<&dyn IsMenuItem<Wry>> = items.iter().map(|i| i as &dyn IsMenuItem<Wry>).collect();
-    let presets = Submenu::with_id_and_items(app, "presets", "Switch wallpaper", true, &refs)?;
-    let settings = MenuItem::with_id(app, "settings", "Open settings...", true, None::<&str>)?;
+    let refs: Vec<&dyn IsMenuItem<Wry>> = all.iter().map(|i| i as &dyn IsMenuItem<Wry>).collect();
+    let presets = Submenu::with_id_and_items(app, "presets", "All wallpapers", true, &refs)?;
+    let settings = MenuItem::with_id(app, "settings", "Open AquaWall...", true, None::<&str>)?;
     let reattach = MenuItem::with_id(app, "reattach", "Re-attach to desktop", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Exit AquaWall", true, None::<&str>)?;
-    let sep1 = PredefinedMenuItem::separator(app)?;
-    let sep2 = PredefinedMenuItem::separator(app)?;
-    Menu::with_items(app, &[&pause, &presets, &sep1, &settings, &reattach, &sep2, &quit])
+    let sep = || PredefinedMenuItem::separator(app);
+
+    let menu = Menu::with_items(app, &[&settings, &sep()?, &pause, &mute, &next, &prev, &random, &sep()?])?;
+    for f in &favs {
+        menu.append(f)?;
+    }
+    if !favs.is_empty() {
+        menu.append(&sep()?)?;
+    }
+    menu.append_items(&[&presets, &sep()?, &reattach, &quit])?;
+    Ok(menu)
 }
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
@@ -42,10 +61,12 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .tooltip("AquaWall")
         .menu(&menu)
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } = event {
-                show_settings(tray.app_handle());
+        .on_tray_icon_event(|tray, event| match event {
+            TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } => show_settings(tray.app_handle()),
+            TrayIconEvent::Click { button: MouseButton::Middle, button_state: MouseButtonState::Up, .. } => {
+                automation::step(tray.app_handle(), 1)
             }
+            _ => {}
         });
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
@@ -66,19 +87,13 @@ pub fn set_tooltip(app: &AppHandle, text: &str) {
     }
 }
 
-fn apply_config_change(app: &AppHandle, f: impl FnOnce(&mut Value)) {
-    let v = app.state::<AppState>().modify(f);
-    let _ = app.emit("config-changed", &v);
-    wallpaper::sync(app, false);
-    refresh(app);
-}
-
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
-        "pause" => apply_config_change(app, |c| {
-            let p = c.get("paused").and_then(|v| v.as_bool()).unwrap_or(false);
-            c["paused"] = json!(!p);
-        }),
+        "pause" => hotkeys::toggle(app, "paused"),
+        "mute" => hotkeys::toggle(app, "muted"),
+        "next" => automation::step(app, 1),
+        "prev" => automation::step(app, -1),
+        "random" => automation::step(app, 0),
         "settings" => show_settings(app),
         "reattach" => wallpaper::sync(app, true),
         "quit" => {
@@ -86,15 +101,8 @@ fn on_menu(app: &AppHandle, id: &str) {
             app.exit(0);
         }
         other => {
-            if let Some(pid) = other.strip_prefix("preset:") {
-                let pid = pid.to_string();
-                apply_config_change(app, move |c| {
-                    if !c.get("display").map(|d| d.is_object()).unwrap_or(false) {
-                        c["display"] = json!({});
-                    }
-                    c["display"]["defaultPresetId"] = json!(pid);
-                    c["display"]["assignments"] = json!({});
-                });
+            if let Some(pid) = other.strip_prefix("preset:").or_else(|| other.strip_prefix("fav:")) {
+                automation::set_active(app, pid);
             }
         }
     }

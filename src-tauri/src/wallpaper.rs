@@ -185,6 +185,11 @@ pub fn sync(app: &AppHandle, force_attach: bool) {
         }
     }
 
+    // Every wallpaper window must sit between the icons and the static
+    // wallpaper - re-assert the full stack (fixes windows hiding each other).
+    let hwnds: Vec<isize> = want.iter().filter(|t| t.attach_mode != "fallback").map(|t| t.hwnd).collect();
+    desktop::restack(&hwnds);
+
     *st.targets.lock().unwrap() = want.clone();
     let _ = app.emit("targets-changed", &want);
 }

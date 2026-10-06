@@ -15,6 +15,7 @@ pub struct PlaybackState {
     pub paused: bool,
     pub muted: bool,
     pub throttle: bool,
+    pub dim: bool,
     pub reason: String,
 }
 
@@ -100,8 +101,7 @@ impl AppState {
         let s = self.settings();
         self.cursor_hz
             .store(s.performance.cursor_hz.clamp(15, 240), Ordering::Relaxed);
-        self.audio_enabled
-            .store(s.widgets.visualizer.enabled, Ordering::Relaxed);
+        self.audio_enabled.store(s.needs_audio(), Ordering::Relaxed);
         self.sysmon_enabled
             .store(s.widgets.sysmon.enabled, Ordering::Relaxed);
     }
@@ -135,6 +135,7 @@ impl AppState {
                     .map(|c| c == canon)
                     .unwrap_or(false)
         };
-        s.library.iter().any(|l| same(&l.path)) || s.presets.iter().any(|p| same(&p.video.path))
+        s.library.iter().any(|l| same(&l.path))
+            || s.presets.iter().any(|p| same(&p.video.path) || same(&p.image.path))
     }
 }
