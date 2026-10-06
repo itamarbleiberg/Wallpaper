@@ -1,0 +1,57 @@
+.aq-widgets {
+  position: absolute;
+  inset: 0;
+  font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  font-size: clamp(12px, 1.6vmin, 28px);
+  user-select: none;
+}
+.aq-widget {
+  display: flex;
+  flex-direction: column;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
+}
+.aq-clock-time {
+  font-size: 4.6em;
+  font-weight: 200;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.aq-clock-date {
+  font-size: 1.25em;
+  font-weight: 400;
+  opacity: 0.85;
+  margin-top: 0.25em;
+}
+.aq-weather-main {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-size: 2.4em;
+  font-weight: 300;
+}
+.aq-weather-sub {
+  opacity: 0.8;
+  font-size: 1em;
+}
+.aq-ring {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+}
+.aq-ring-label {
+  font-size: 0.85em;
+  opacity: 0.85;
+}
+.aq-error {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  max-width: 50vw;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(120, 0, 0, 0.75);
+  color: #fff;
+  font: 12px/1.4 "Segoe UI", system-ui, sans-serif;
+  white-space: pre-wrap;
+}
