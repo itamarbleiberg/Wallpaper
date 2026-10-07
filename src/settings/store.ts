@@ -37,6 +37,7 @@ interface Store {
   updatePreset(fn: (p: Preset) => void): void;
   selected(): Preset | null;
   applyPreset(id: string, monitorId?: string): void;
+  ensureNature(id: string): Promise<void>;
   addMedia(path: string, kind: "video" | "image", source: LibraryItem["source"], name?: string, url?: string): Promise<Preset>;
   createPreset(kind: PresetKind, name: string, patch?: Partial<Preset>): Preset;
   duplicate(id: string): void;
@@ -156,6 +157,7 @@ export const useStore = create<Store>()((set, get) => ({
   },
 
   applyPreset(id, monitorId) {
+    get().ensureNature(id);
     get().update((c) => {
       if (monitorId && c.display.layout === "independent") c.display.assignments[monitorId] = id;
       else if (monitorId && c.display.layout === "span") c.display.assignments.span = id;
@@ -164,6 +166,26 @@ export const useStore = create<Store>()((set, get) => ({
         c.display.assignments = {};
       }
     }, { immediate: true });
+  },
+
+  /** Download a built-in nature clip on first use, then store its local path. */
+  async ensureNature(id) {
+    const p = get().config?.presets.find((x) => x.id === id);
+    if (!p || p.kind !== "video" || !p.video.sourceUrl || p.video.path) return;
+    try {
+      const res = await invoke<{ path: string; jobId: string | null }>("ensure_nature", { presetId: id, url: p.video.sourceUrl });
+      if (res.path) {
+        get().update((c) => { const pr = c.presets.find((x) => x.id === id); if (pr) pr.video.path = res.path; }, { immediate: true });
+      } else if (res.jobId) {
+        get().startJob(res.jobId, `Fetch ${p.name}`, (path) => {
+          get().update((c) => { const pr = c.presets.find((x) => x.id === id); if (pr) pr.video.path = path; }, { immediate: true });
+          get().notify(`${p.name} is ready`);
+        });
+        get().notify(`Downloading ${p.name}…`);
+      }
+    } catch (e) {
+      get().notify(String(e), "error");
+    }
   },
 
   createPreset(kind, name, patch = {}) {

@@ -1,4 +1,5 @@
 import { SHADER_LIBRARY } from "../engine/shaderLibrary";
+import { naturePresets } from "./nature";
 
 export type PresetKind = "water" | "video" | "image" | "shader";
 export type Category = "water" | "nature" | "space" | "abstract" | "retro" | "cozy" | "mine";
@@ -42,6 +43,8 @@ export interface WaterSettings {
 
 export interface VideoSettings {
   path: string;
+  /** For built-in nature wallpapers: royalty-free source fetched on first use. */
+  sourceUrl?: string;
   inPoint: number;
   outPoint: number | null;
   speed: number;
@@ -60,6 +63,63 @@ export interface ImageSettings {
   fit: FitMode;
   kenBurns: number;      // 0..1 slow pan & zoom amount
   kenBurnsSpeed: number; // 0.2..3
+}
+
+// ---------------------------------------------------------------- v3 editor model
+
+/** RGB wheel offset, each channel -1..1, plus a master. */
+export interface Wheel { r: number; g: number; b: number; master: number }
+
+/** DaVinci-style primary color grade (lift / gamma / gain + offset). */
+export interface GradeSettings {
+  enabled: boolean;
+  lift: Wheel;    // shadows
+  gamma: Wheel;   // midtones
+  gain: Wheel;    // highlights
+  offset: Wheel;  // overall
+  hue: number;        // -180..180 global hue rotate
+  tint: number;       // -1..1 green/magenta
+  pivot: number;      // contrast pivot 0..1
+  lut: string;        // built-in creative LUT id ("" = none)
+  lutAmount: number;  // 0..1 mix
+  highlights: number; // -1..1 recovery
+  shadows: number;    // -1..1 recovery
+}
+
+/** Transform / crop / framing (Resolve "Sizing" + "Crop"). */
+export interface TransformSettings {
+  enabled: boolean;
+  zoom: number;      // 0.2..4
+  posX: number;      // -1..1 (fraction of width)
+  posY: number;      // -1..1
+  rotate: number;    // degrees
+  flipH: boolean;
+  flipV: boolean;
+  cropL: number;     // 0..0.9 fractions
+  cropR: number;
+  cropT: number;
+  cropB: number;
+  cropFeather: number; // 0..0.3
+}
+
+/** Chroma key (green/blue screen removal) with a solid/transparent backdrop. */
+export interface ChromaSettings {
+  enabled: boolean;
+  color: string;
+  similarity: number; // 0..1
+  smoothness: number; // 0..1
+  spill: number;      // 0..1 spill suppression
+  backdrop: string;   // fill color behind keyed areas
+}
+
+/** A single motion keyframe for the preview "animate" track. */
+export interface Keyframe { t: number; zoom: number; posX: number; posY: number; rotate: number }
+
+export interface MotionSettings {
+  enabled: boolean;
+  loop: number;          // seconds for the whole motion loop
+  easing: "linear" | "smooth" | "bounce";
+  keys: Keyframe[];
 }
 
 export interface ShaderSettings {
@@ -97,6 +157,10 @@ export interface EffectsSettings {
   parallax: number;     // 0..1 mouse-follow depth shift
   beatPulse: number;    // 0..1 pulse on bass beats
   audioRipples: number; // 0..2 beats drop ripples into the water
+  bloom: number;        // 0..1 glow on bright areas
+  chromatic: number;    // 0..1 chromatic aberration at edges
+  audioBright: number;  // 0..1 brightness pumps with the music
+  mirror: "none" | "x" | "y" | "quad" | "kaleido"; // symmetry
 }
 
 export interface Preset {
@@ -113,6 +177,10 @@ export interface Preset {
   shader: ShaderSettings;
   filters: FilterSettings;
   effects: EffectsSettings;
+  grade: GradeSettings;
+  transform: TransformSettings;
+  chroma: ChromaSettings;
+  motion: MotionSettings;
   renderScale: number;
   fpsCap: number;
 }
@@ -211,7 +279,7 @@ export const DEFAULT_WATER: WaterSettings = {
 };
 
 export const DEFAULT_VIDEO: VideoSettings = {
-  path: "", inPoint: 0, outPoint: null, speed: 1, loopMode: "loop", crossfade: 0.8, frameBlend: false,
+  path: "", sourceUrl: "", inPoint: 0, outPoint: null, speed: 1, loopMode: "loop", crossfade: 0.8, frameBlend: false,
   fit: "cover", volume: 0.5, muted: true, opacity: 1, bicubic: true,
 };
 
@@ -230,7 +298,63 @@ export const DEFAULT_EFFECTS: EffectsSettings = {
   parallax: 0,
   beatPulse: 0,
   audioRipples: 0,
+  bloom: 0,
+  chromatic: 0,
+  audioBright: 0,
+  mirror: "none",
 };
+
+const neutralWheel = (): Wheel => ({ r: 0, g: 0, b: 0, master: 0 });
+
+export const DEFAULT_GRADE: GradeSettings = {
+  enabled: false,
+  lift: neutralWheel(),
+  gamma: neutralWheel(),
+  gain: neutralWheel(),
+  offset: neutralWheel(),
+  hue: 0,
+  tint: 0,
+  pivot: 0.5,
+  lut: "",
+  lutAmount: 1,
+  highlights: 0,
+  shadows: 0,
+};
+
+export const DEFAULT_TRANSFORM: TransformSettings = {
+  enabled: false,
+  zoom: 1, posX: 0, posY: 0, rotate: 0, flipH: false, flipV: false,
+  cropL: 0, cropR: 0, cropT: 0, cropB: 0, cropFeather: 0,
+};
+
+export const DEFAULT_CHROMA: ChromaSettings = {
+  enabled: false, color: "#00ff00", similarity: 0.4, smoothness: 0.1, spill: 0.3, backdrop: "#000000",
+};
+
+export const DEFAULT_MOTION: MotionSettings = {
+  enabled: false,
+  loop: 20,
+  easing: "smooth",
+  keys: [
+    { t: 0, zoom: 1, posX: 0, posY: 0, rotate: 0 },
+    { t: 1, zoom: 1.12, posX: 0.04, posY: -0.03, rotate: 0 },
+  ],
+};
+
+/** Built-in creative LUTs expressed as parametric grades (id -> label). */
+export const LUTS: { id: string; name: string }[] = [
+  { id: "", name: "None" },
+  { id: "teal-orange", name: "Teal & Orange" },
+  { id: "cine-noir", name: "Cine Noir" },
+  { id: "warm-film", name: "Warm Film" },
+  { id: "cool-blue", name: "Cool Blue" },
+  { id: "vibrant-pop", name: "Vibrant Pop" },
+  { id: "faded-vhs", name: "Faded VHS" },
+  { id: "moody-forest", name: "Moody Forest" },
+  { id: "golden-hour", name: "Golden Hour" },
+  { id: "cyberpunk", name: "Cyberpunk" },
+  { id: "bw-contrast", name: "B&W Contrast" },
+];
 
 export function uid(prefix = "p"): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -253,6 +377,10 @@ export function makePreset(kind: PresetKind, name: string, patch: DeepPartial<Pr
       shader: DEFAULT_SHADER,
       filters: DEFAULT_FILTERS,
       effects: DEFAULT_EFFECTS,
+      grade: DEFAULT_GRADE,
+      transform: DEFAULT_TRANSFORM,
+      chroma: DEFAULT_CHROMA,
+      motion: DEFAULT_MOTION,
       renderScale: 1,
       fpsCap: 60,
     } as Preset,
@@ -310,12 +438,12 @@ export function builtinPresets(): Preset[] {
       filters: s.filters ?? {},
     }),
   );
-  return [...pools, ...shaders];
+  return [...pools, ...naturePresets(), ...shaders];
 }
 
 export function defaultConfig(): AppConfig {
   return {
-    version: 2,
+    version: 3,
     presets: builtinPresets(),
     library: [],
     display: { layout: "independent", assignments: {}, defaultPresetId: "builtin-pool" },
@@ -399,7 +527,7 @@ export function normalizeConfig(raw: unknown): AppConfig {
   const order = new Map(builtins.map((b, i) => [b.id, i]));
   presets.sort((a, b) => (order.get(a.id) ?? 1e6) - (order.get(b.id) ?? 1e6));
   merged.presets = presets;
-  merged.version = 2;
+  merged.version = 3;
   if (!presets.some((p) => p.id === merged.display.defaultPresetId)) merged.display.defaultPresetId = "builtin-pool";
   return merged;
 }

@@ -87,6 +87,15 @@ h3, h4 { margin: 0; }
 .w-seg button.on { background: var(--accent); color: #04121f; }
 .w-reset { margin-top: 8px; width: 100%; height: auto; padding: 7px; }
 
+/* nature stub (real-footage wallpapers need the app) */
+.nature-stub { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(900px 500px at 50% 30%, rgba(63,194,255,0.1), transparent 70%), #070b12; }
+.nature-stub-card { max-width: 440px; text-align: center; padding: 36px; }
+.ns-badge { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #04121f; background: var(--accent); padding: 4px 12px; border-radius: 99px; }
+.nature-stub-card h2 { font-size: 30px; margin: 16px 0 10px; }
+.nature-stub-card p { color: var(--muted); margin-bottom: 10px; }
+.ns-note { font-size: 13.5px; }
+.nature-stub-card .web-get { display: inline-block; margin-top: 14px; }
+
 /* mobile */
 .web-mobilebar { display: none; }
 .preview-fps { bottom: 70px; }

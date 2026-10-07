@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import type { Preset, WaterSettings, VideoSettings, FilterSettings, EffectsSettings } from "@shared/types";
-import { DEFAULT_FILTERS } from "@shared/types";
+import type { Preset, WaterSettings, VideoSettings, FilterSettings, EffectsSettings, TransformSettings } from "@shared/types";
+import { DEFAULT_FILTERS, DEFAULT_GRADE, DEFAULT_TRANSFORM, LUTS } from "@shared/types";
 import { SHADER_LIBRARY } from "@engine/shaderLibrary";
 import { Color, Row, Seg, Select, Slider, Toggle, pct, times } from "./ui";
 
@@ -8,7 +8,7 @@ export type Upd = (fn: (p: Preset) => void) => void;
 
 export function PanelFor({ p, upd }: { p: Preset; upd: Upd }) {
   if (p.kind === "water") return <WaterPanel w={p.water} p={p} upd={upd} />;
-  if (p.kind === "video") return <VideoPanel v={p.video} upd={upd} />;
+  if (p.kind === "video") return <VideoPanel v={p.video} pp={p} upd={upd} />;
   if (p.kind === "image") return <ImagePanel p={p} upd={upd} />;
   return <ShaderPanel p={p} upd={upd} />;
 }
@@ -46,12 +46,15 @@ function WaterPanel({ w, p, upd }: { w: WaterSettings; p: Preset; upd: Upd }) {
         <Slider label="Lily pads" value={w.lilyPads} min={0} max={12} step={1} onChange={(v) => set("lilyPads", v)} />
       </Group>
       <EffectsGroup p={p} upd={upd} />
+      <StylizeGroup p={p} upd={upd} />
+      <ColorGroup p={p} upd={upd} />
+      <TransformGroup p={p} upd={upd} />
       <EnhanceGroup p={p} upd={upd} />
     </>
   );
 }
 
-function VideoPanel({ v, upd }: { v: VideoSettings; upd: Upd }) {
+function VideoPanel({ v, pp, upd }: { v: VideoSettings; pp: Preset; upd: Upd }) {
   const set = <K extends keyof VideoSettings>(k: K, val: VideoSettings[K]) => upd((x) => { x.video[k] = val; });
   return (
     <>
@@ -64,6 +67,10 @@ function VideoPanel({ v, upd }: { v: VideoSettings; upd: Upd }) {
         <Toggle label="Mute" value={v.muted} onChange={(x) => set("muted", x)} />
         {!v.muted && <Slider label="Volume" value={v.volume} min={0} max={1} onChange={(x) => set("volume", x)} format={pct} />}
       </Group>
+      <StylizeGroup p={pp} upd={upd} />
+      <ColorGroup p={pp} upd={upd} />
+      <TransformGroup p={pp} upd={upd} />
+      <EnhanceGroup p={pp} upd={upd} />
     </>
   );
 }
@@ -77,6 +84,9 @@ function ImagePanel({ p, upd }: { p: Preset; upd: Upd }) {
         <Slider label="Ken Burns motion" value={i.kenBurns} min={0} max={1} onChange={(v) => upd((x) => { x.image.kenBurns = v; })} format={pct} />
       </Group>
       <EffectsGroup p={p} upd={upd} />
+      <StylizeGroup p={p} upd={upd} />
+      <ColorGroup p={p} upd={upd} />
+      <TransformGroup p={p} upd={upd} />
       <EnhanceGroup p={p} upd={upd} />
     </>
   );
@@ -92,6 +102,9 @@ function ShaderPanel({ p, upd }: { p: Preset; upd: Upd }) {
         <Toggle label="Follow mouse" value={s.mouse} onChange={(v) => upd((x) => { x.shader.mouse = v; })} />
       </Group>
       <EffectsGroup p={p} upd={upd} />
+      <StylizeGroup p={p} upd={upd} />
+      <ColorGroup p={p} upd={upd} />
+      <TransformGroup p={p} upd={upd} />
       <EnhanceGroup p={p} upd={upd} />
     </>
   );
@@ -133,6 +146,63 @@ function EnhanceGroup({ p, upd }: { p: Preset; upd: Upd }) {
       <Slider label="Saturation" value={f.saturation} min={0} max={2} onChange={(v) => set("saturation", v)} format={times} />
       <Slider label="Vignette" value={f.vignette} min={0} max={1} onChange={(v) => set("vignette", v)} format={pct} />
       <button className="w-reset" onClick={() => upd((x) => { x.filters = { ...DEFAULT_FILTERS }; })}>Reset color</button>
+    </Group>
+  );
+}
+
+function ColorGroup({ p, upd }: { p: Preset; upd: Upd }) {
+  const g = p.grade;
+  const setW = (which: "lift" | "gamma" | "gain", ch: "r" | "g" | "b" | "master", v: number) => upd((x) => { x.grade[which][ch] = v; x.grade.enabled = true; });
+  return (
+    <Group title="Color grade">
+      <Toggle label="Enable grade" value={g.enabled} onChange={(v) => upd((x) => { x.grade.enabled = v; })} />
+      {g.enabled && (
+        <>
+          <Select label="Creative LUT" value={g.lut} onChange={(v) => upd((x) => { x.grade.lut = v; })} options={LUTS.map((l) => ({ value: l.id, label: l.name }))} />
+          {g.lut && <Slider label="LUT amount" value={g.lutAmount} min={0} max={1} onChange={(v) => upd((x) => { x.grade.lutAmount = v; })} format={pct} />}
+          <Slider label="Shadows (lift)" value={g.lift.master} min={-0.5} max={0.5} onChange={(v) => setW("lift", "master", v)} />
+          <Slider label="Mids (gamma)" value={g.gamma.master} min={-0.5} max={0.5} onChange={(v) => setW("gamma", "master", v)} />
+          <Slider label="Highlights (gain)" value={g.gain.master} min={-0.5} max={0.5} onChange={(v) => setW("gain", "master", v)} />
+          <Slider label="Warm / cool" value={g.gain.b} min={-0.4} max={0.4} onChange={(v) => { setW("gain", "b", v); upd((x) => { x.grade.gain.r = -v * 0.6; }); }} />
+          <Slider label="Hue rotate" value={g.hue} min={-180} max={180} step={1} onChange={(v) => upd((x) => { x.grade.hue = v; x.grade.enabled = true; })} format={(v) => `${v}°`} />
+          <button className="w-reset" onClick={() => upd((x) => { x.grade = { ...DEFAULT_GRADE, enabled: true }; })}>Reset grade</button>
+        </>
+      )}
+    </Group>
+  );
+}
+
+function TransformGroup({ p, upd }: { p: Preset; upd: Upd }) {
+  const t = p.transform;
+  const set = <K extends keyof TransformSettings>(k: K, v: TransformSettings[K]) => upd((x) => { x.transform[k] = v; x.transform.enabled = true; });
+  return (
+    <Group title="Transform & crop">
+      <Toggle label="Enable transform" value={t.enabled} onChange={(v) => upd((x) => { x.transform.enabled = v; })} />
+      {t.enabled && (
+        <>
+          <Slider label="Zoom" value={t.zoom} min={0.2} max={4} onChange={(v) => set("zoom", v)} format={times} />
+          <Slider label="Position X" value={t.posX} min={-1} max={1} onChange={(v) => set("posX", v)} />
+          <Slider label="Position Y" value={t.posY} min={-1} max={1} onChange={(v) => set("posY", v)} />
+          <Slider label="Rotation" value={t.rotate} min={-180} max={180} step={1} onChange={(v) => set("rotate", v)} format={(v) => `${v}°`} />
+          <Toggle label="Flip horizontal" value={t.flipH} onChange={(v) => set("flipH", v)} />
+          <Slider label="Crop left" value={t.cropL} min={0} max={0.9} onChange={(v) => set("cropL", v)} format={pct} />
+          <Slider label="Crop right" value={t.cropR} min={0} max={0.9} onChange={(v) => set("cropR", v)} format={pct} />
+          <Slider label="Feather" value={t.cropFeather} min={0} max={0.3} onChange={(v) => set("cropFeather", v)} format={pct} />
+          <button className="w-reset" onClick={() => upd((x) => { x.transform = { ...DEFAULT_TRANSFORM, enabled: true }; })}>Reset transform</button>
+        </>
+      )}
+    </Group>
+  );
+}
+
+function StylizeGroup({ p, upd }: { p: Preset; upd: Upd }) {
+  const e = p.effects;
+  return (
+    <Group title="Stylize">
+      <Slider label="Bloom / glow" value={e.bloom} min={0} max={1} onChange={(v) => upd((x) => { x.effects.bloom = v; })} format={pct} />
+      <Slider label="Chromatic aberration" value={e.chromatic} min={0} max={1} onChange={(v) => upd((x) => { x.effects.chromatic = v; })} format={pct} />
+      <Row label="Symmetry"><Seg value={e.mirror} onChange={(v) => upd((x) => { x.effects.mirror = v; })} options={[{ value: "none", label: "None" }, { value: "x", label: "X" }, { value: "y", label: "Y" }, { value: "quad", label: "Quad" }, { value: "kaleido", label: "Kaleido" }]} /></Row>
+      <Toggle label="Motion auto-pan" value={p.motion.enabled} onChange={(v) => upd((x) => { x.motion.enabled = v; })} hint="Slow looping camera move" />
     </Group>
   );
 }

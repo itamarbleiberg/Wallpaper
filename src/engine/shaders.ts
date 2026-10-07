@@ -428,7 +428,7 @@ void main() {
   outColor = vec4(c, 1.0);
 }`;
 
-export const POST_FS = /* glsl */ `#version 300 es
+const POST_FS_RAW = /* glsl */ `#version 300 es
 precision highp float;
 in vec2 vUv;
 out vec4 outColor;
@@ -451,12 +451,38 @@ uniform float uVignetteSoft;
 uniform float uGrain;
 uniform vec2 uOffset;   // parallax shift (uv)
 uniform float uZoom;    // >= 1 zoom-in factor (parallax headroom + beat pulse)
-
+// v3 grade + fx
+uniform int uGrade;
+uniform vec3 uLift;
+uniform vec3 uGamma3;
+uniform vec3 uGain;
+uniform vec3 uGOffset;
+uniform float uHue;
+uniform float uTint;
+uniform float uPivot;
+uniform int uLut;
+uniform float uLutAmt;
+uniform float uHi;
+uniform float uLo;
+uniform float uBloom;
+uniform float uChromatic;
+GRADE_HEADER_PLACEHOLDER
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
+vec3 sampleSrc(vec2 uv) { return texture(uSrc, uv).rgb; }
 
 void main() {
   vec2 uv = (vUv - 0.5) / uZoom + 0.5 + uOffset;
-  vec3 c = texture(uSrc, uv).rgb;
+  vec3 c;
+  if (uChromatic > 0.001) {
+    vec2 dir = (uv - 0.5);
+    float amt = uChromatic * 0.02 * dot(dir, dir) * 4.0;
+    c.r = sampleSrc(uv + dir * amt).r;
+    c.g = sampleSrc(uv).g;
+    c.b = sampleSrc(uv - dir * amt).b;
+  } else {
+    c = sampleSrc(uv);
+  }
   if (uSharpen > 0.001) {
     vec3 a = texture(uSrc, uv + vec2(0.0, uTexel.y)).rgb;
     vec3 b = texture(uSrc, uv - vec2(0.0, uTexel.y)).rgb;
@@ -477,6 +503,29 @@ void main() {
   float sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
   c = mix(vec3(lum), c, 1.0 + uVibrance * (1.0 - sat));
   c = pow(max(c, 0.0), vec3(1.0 / max(uGamma, 0.05)));
+
+  // v3 primary grade (lift/gamma/gain/offset + hue/tint + highlight/shadow + LUT)
+  if (uGrade == 1) {
+    c = lgg(c, uLift, uGamma3, uGain, uGOffset);
+    float lg = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c += uHi * smoothstep(0.5, 1.0, lg);
+    c += uLo * (1.0 - smoothstep(0.0, 0.5, lg));
+    if (abs(uHue) > 0.001 || abs(uTint) > 0.001) {
+      vec3 h = rgb2hsv(max(c, 0.0));
+      h.x = fract(h.x + uHue / 360.0);
+      c = hsv2rgb(h);
+      c += vec3(-uTint, uTint, -uTint) * 0.08;
+    }
+    c = (c - uPivot) * uContrast + uPivot - (c - 0.5) * (uContrast - 1.0) * 0.0;
+    c = applyLUT(clamp(c, 0.0, 1.0), uLut, uLutAmt);
+  }
+
+  // bloom: soft glow fed from the half-res blur buffer's bright areas
+  if (uBloom > 0.001 && uHasBlur == 1) {
+    vec3 b = texture(uBlurTex, uv).rgb;
+    vec3 bright = max(b - 0.6, 0.0) * 2.2;
+    c += bright * uBloom * 1.4;
+  }
   if (uVignette > 0.001) {
     vec2 d = (vUv - 0.5) * vec2(uResolution.x / uResolution.y, 1.0);
     float v = smoothstep(0.35, 0.35 + uVignetteSoft * 0.8, length(d));
@@ -485,6 +534,127 @@ void main() {
   if (uGrain > 0.001) c += (hash(vUv * uResolution + fract(uTime) * 100.0) - 0.5) * uGrain * 0.12;
   outColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
+
+// ---------------------------------------------------------------- v3 editor stages
+
+// Stage 1: transform (zoom/pan/rotate/flip), crop with feather, mirror
+// symmetry, and chroma key. Runs before color so grading sees final framing.
+export const GEOM_FS = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uSrc;
+uniform float uAspect;
+uniform float uZoom;
+uniform vec2 uPos;      // -1..1 fraction
+uniform float uRot;     // radians
+uniform vec2 uFlip;     // (±1, ±1)
+uniform vec4 uCrop;     // L,R,T,B fractions
+uniform float uFeather;
+uniform int uMirror;    // 0 none,1 x,2 y,3 quad,4 kaleido
+uniform int uChroma;
+uniform vec3 uKeyCol;
+uniform float uSimil;
+uniform float uSmooth;
+uniform float uSpill;
+uniform vec3 uBackdrop;
+
+vec2 applyMirror(vec2 uv) {
+  if (uMirror == 1) { uv.x = 0.5 - abs(uv.x - 0.5); }
+  else if (uMirror == 2) { uv.y = 0.5 - abs(uv.y - 0.5); }
+  else if (uMirror == 3) { uv = 0.5 - abs(uv - 0.5); }
+  else if (uMirror == 4) {
+    vec2 p = uv - 0.5;
+    float a = atan(p.y, p.x);
+    float r = length(p);
+    float seg = 3.14159265 / 3.0;
+    a = abs(mod(a, 2.0 * seg) - seg);
+    uv = 0.5 + vec2(cos(a), sin(a)) * r;
+  }
+  return uv;
+}
+
+void main() {
+  vec2 uv = applyMirror(vUv);
+  // transform around center with aspect-correct rotation
+  vec2 p = uv - 0.5;
+  p *= vec2(uAspect, 1.0);
+  float cs = cos(uRot), sn = sin(uRot);
+  p = mat2(cs, -sn, sn, cs) * p;
+  p /= vec2(uAspect, 1.0);
+  p /= uZoom;
+  p *= uFlip;
+  p -= uPos * 0.5;
+  uv = p + 0.5;
+
+  vec3 col;
+  float outside = step(uv.x, 0.0) + step(1.0, uv.x) + step(uv.y, 0.0) + step(1.0, uv.y);
+  if (outside > 0.0) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  col = texture(uSrc, uv).rgb;
+
+  // crop with feather -> fade to black outside the crop box
+  float m = 1.0;
+  float f = max(uFeather, 1e-4);
+  m *= smoothstep(uCrop.x - f, uCrop.x + f, uv.x);
+  m *= smoothstep(uCrop.y - f, uCrop.y + f, 1.0 - uv.x);
+  m *= smoothstep(uCrop.z - f, uCrop.z + f, uv.y);
+  m *= smoothstep(uCrop.w - f, uCrop.w + f, 1.0 - uv.y);
+  col *= m;
+
+  if (uChroma == 1) {
+    float d = distance(col, uKeyCol);
+    float a = smoothstep(uSimil, uSimil + uSmooth + 1e-4, d);
+    // spill suppression: pull green toward luma where keyed
+    float lum = dot(col, vec3(0.299, 0.587, 0.114));
+    col = mix(col, vec3(lum), (1.0 - a) * 0.0 + uSpill * (1.0 - a));
+    col = mix(uBackdrop, col, a);
+  }
+  outColor = vec4(col, 1.0);
+}`;
+
+// Lift/gamma/gain/offset color wheels + hue/tint + creative LUT.
+export const GRADE_HEADER = /* glsl */ `
+vec3 rgb2hsv(vec3 c) {
+  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y);
+  float e = 1.0e-10;
+  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+vec3 lgg(vec3 c, vec3 lift, vec3 gamma, vec3 gain, vec3 offset) {
+  c = c + offset;
+  c = c * (1.0 + gain) + lift * (1.0 - c);         // gain scales, lift raises shadows
+  c = max(c, 0.0);
+  vec3 g = 1.0 / max(vec3(1.0) + gamma, 0.05);
+  c = pow(c, g);
+  return c;
+}
+vec3 applyLUT(vec3 c, int id, float amt) {
+  if (id == 0) return c;
+  vec3 o = c;
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  if (id == 1) { o.r = pow(c.r, 0.9) + 0.04; o.b = pow(c.b, 1.12) - 0.02; o = mix(o, o * vec3(1.08, 1.0, 0.92), 0.6); } // teal-orange
+  else if (id == 2) { o = mix(vec3(l), c, 0.15); o = (o - 0.5) * 1.25 + 0.46; } // cine noir
+  else if (id == 3) { o = c * vec3(1.1, 1.02, 0.9) + vec3(0.03, 0.015, 0.0); } // warm film
+  else if (id == 4) { o = c * vec3(0.9, 1.0, 1.14); o += vec3(0.0, 0.01, 0.04); } // cool blue
+  else if (id == 5) { vec3 h = rgb2hsv(c); h.y = min(1.0, h.y * 1.45); o = hsv2rgb(h); o = (o - 0.5) * 1.1 + 0.5; } // vibrant pop
+  else if (id == 6) { o = mix(c, vec3(l), 0.25) * vec3(1.05, 1.0, 0.95) + 0.04; o.b += 0.03; } // faded vhs
+  else if (id == 7) { o = c * vec3(0.85, 1.05, 0.85); o = (o - 0.5) * 1.08 + 0.47; } // moody forest
+  else if (id == 8) { o = c * vec3(1.15, 1.03, 0.78) + vec3(0.05, 0.02, 0.0); } // golden hour
+  else if (id == 9) { vec3 h = rgb2hsv(c); h.y = min(1.0, h.y * 1.3); o = hsv2rgb(h); o *= vec3(0.9, 0.95, 1.2); o += vec3(0.03, 0.0, 0.06); } // cyberpunk
+  else if (id == 10) { o = vec3((l - 0.5) * 1.35 + 0.5); } // b&w contrast
+  return mix(c, clamp(o, 0.0, 1.0), amt);
+}
+`;
+
+// Compose the grade helpers into the post shader.
+export const POST_FS = POST_FS_RAW.replace("GRADE_HEADER_PLACEHOLDER", GRADE_HEADER);
 
 // Still image with Ken Burns pan & zoom.
 export const IMAGE_FS = /* glsl */ `#version 300 es

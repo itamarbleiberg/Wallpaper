@@ -1,6 +1,6 @@
 [package]
 name = "aquawall"
-version = "2.0.0"
+version = "3.0.0"
 description = "AquaWall - interactive live wallpapers for Windows"
 edition = "2021"
 rust-version = "1.77"

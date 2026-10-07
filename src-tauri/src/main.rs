@@ -72,6 +72,7 @@ fn main() {
             commands::tool_status,
             commands::import_url,
             commands::bake_video,
+            commands::ensure_nature,
             commands::cancel_job,
             commands::open_folder,
             commands::save_image,

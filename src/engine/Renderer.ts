@@ -444,7 +444,7 @@ export class Renderer {
       tex = this.rip.tex;
     }
 
-    // 3) post processing (parallax, beat pulse, grading)
+    // 3) post processing (parallax, beat pulse, motion, grading, geometry)
     const par = p.effects.parallax;
     const tx = pt.inside ? (pt.x - 0.5) : 0;
     const ty = pt.inside ? (pt.y - 0.5) : 0;
@@ -452,14 +452,52 @@ export class Renderer {
     this.par.x += (tx - this.par.x) * k;
     this.par.y += (ty - this.par.y) * k;
     const pulse = this.pulse * p.effects.beatPulse;
+    const audioBright = p.effects.audioBright * this.bassAvg;
     const view: PostView = {
       offsetX: this.par.x * par * 0.035,
       offsetY: this.par.y * par * 0.035,
       zoom: 1 + par * 0.08 + pulse * 0.025,
-      brightness: this.adjust.brightness * (1 + pulse * 0.22),
+      brightness: this.adjust.brightness * (1 + pulse * 0.22 + audioBright * 0.5),
       warmth: this.adjust.warmth,
     };
-    this.post.render(tex, w, h, out, w, h, p.filters, this.time, view);
+    // Motion keyframes drive the transform block (for a cinematic auto-pan).
+    const transform = this.applyMotion(p);
+    this.post.render(tex, w, h, out, w, h, {
+      filters: p.filters,
+      grade: p.grade,
+      transform,
+      chroma: p.chroma,
+      bloom: p.effects.bloom,
+      chromatic: p.effects.chromatic,
+      mirror: p.effects.mirror,
+    }, this.time, view);
+  }
+
+  /** Blend the motion keyframes into (a copy of) the transform block. */
+  private applyMotion(p: Preset): Preset["transform"] {
+    const m = p.motion;
+    if (!m.enabled || m.keys.length < 2) return p.transform;
+    const loop = Math.max(0.5, m.loop);
+    let u = (this.time % loop) / loop; // 0..1
+    // ping-pong so the loop is seamless
+    u = u < 0.5 ? u * 2 : (1 - u) * 2;
+    if (m.easing === "smooth") u = u * u * (3 - 2 * u);
+    else if (m.easing === "bounce") u = 1 - Math.pow(1 - u, 2) * Math.abs(Math.cos(u * 6.283));
+    const keys = m.keys;
+    const span = u * (keys.length - 1);
+    const i = Math.min(keys.length - 2, Math.floor(span));
+    const f = span - i;
+    const a = keys[i], b = keys[i + 1];
+    const lerp = (x: number, y: number) => x + (y - x) * f;
+    const base = p.transform;
+    return {
+      ...base,
+      enabled: true,
+      zoom: base.zoom * lerp(a.zoom, b.zoom),
+      posX: base.posX + lerp(a.posX, b.posX),
+      posY: base.posY + lerp(a.posY, b.posY),
+      rotate: base.rotate + lerp(a.rotate, b.rotate),
+    };
   }
 
   /** Render the current preset at its current size and return a PNG data URL. */

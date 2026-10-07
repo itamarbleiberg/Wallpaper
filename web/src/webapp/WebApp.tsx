@@ -10,6 +10,11 @@ import { PanelFor } from "./panels";
 
 const CATS: (Category | "all")[] = ["all", "water", "nature", "space", "abstract", "retro", "cozy"];
 
+/** Nature videos stream real 4K footage only in the desktop app. */
+function isNatureStub(p: Preset): boolean {
+  return p.kind === "video" && !!p.video.sourceUrl && !p.video.path;
+}
+
 function GalleryItem({ p, active, onClick }: { p: Preset; active: boolean; onClick: () => void }) {
   const [url, setUrl] = useState<string | undefined>(() => cachedThumb(p));
   useEffect(() => {
@@ -76,9 +81,23 @@ export function WebApp() {
     history.replaceState(null, "", u);
   }, [id]);
 
+  const natureStub = isNatureStub(preset);
+
   return (
     <div className={`web ${showPanel ? "" : "no-panel"} ${showGallery ? "" : "no-gallery"}`}>
-      <WebPreview preset={preset} interactive className="web-stage" showFps />
+      {natureStub ? (
+        <div className="web-stage nature-stub">
+          <div className="nature-stub-card">
+            <span className="ns-badge">Real 4K Nature</span>
+            <h2>{preset.name}</h2>
+            <p>{preset.description}</p>
+            <p className="ns-note">This wallpaper streams real camera footage, which only the desktop app can download &amp; play behind your icons.</p>
+            <a className="web-get" href={SETUP_EXE} download>Get AquaWall to use it</a>
+          </div>
+        </div>
+      ) : (
+        <WebPreview preset={preset} interactive className="web-stage" showFps />
+      )}
 
       <header className="web-top">
         <a className="web-brand" href={homeHref}><Logo /> AquaWall <span className="web-tag">Web</span></a>

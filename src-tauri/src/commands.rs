@@ -121,6 +121,11 @@ pub fn bake_video(app: AppHandle, request: BakeRequest) -> Result<String, String
 }
 
 #[tauri::command]
+pub fn ensure_nature(app: AppHandle, preset_id: String, url: String) -> Result<media::NatureResult, String> {
+    media::ensure_nature(&app, preset_id, url)
+}
+
+#[tauri::command]
 pub fn cancel_job(app: AppHandle, id: String) {
     media::cancel(&app, &id);
 }

@@ -136,6 +136,80 @@ pub fn cancel(app: &AppHandle, id: &str) {
     }
 }
 
+/// Ensure a built-in nature clip is on disk; download it once if missing.
+/// `preset_id` gives a stable filename so each clip is fetched only once.
+/// Returns the local path immediately if cached, else starts a job and returns
+/// an empty path with `job_id` set so the UI can show progress.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NatureResult {
+    pub path: String,
+    pub job_id: Option<String>,
+}
+
+pub fn ensure_nature(app: &AppHandle, preset_id: String, url: String) -> Result<NatureResult, String> {
+    let dir = app.state::<AppState>().library_dir.join("nature");
+    let _ = std::fs::create_dir_all(&dir);
+    let safe: String = preset_id.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
+    let dest = dir.join(format!("{safe}.mp4"));
+    if dest.is_file() && std::fs::metadata(&dest).map(|m| m.len() > 1024).unwrap_or(false) {
+        return Ok(NatureResult { path: dest.to_string_lossy().to_string(), job_id: None });
+    }
+    let ytdlp = find_tool(app, "yt-dlp");
+    let ffmpeg = find_tool(app, "ffmpeg");
+    let id = new_id("nat");
+    let handle = register(app, &id);
+    let app2 = app.clone();
+    let jid = id.clone();
+    std::thread::spawn(move || {
+        emit(&app2, &jid, "download", "running", 0.0, "Fetching nature clip…", None);
+        let tmp = dest.with_extension("part.mp4");
+        let ok = if let Some(yt) = &ytdlp {
+            // Prefer yt-dlp: handles direct links and most providers, caps at 2160p.
+            let mut cmd = command(yt);
+            cmd.args(["--no-playlist", "--newline", "--no-part", "-f", "bv*[height<=2160][ext=mp4]/b[ext=mp4]/b", "-o"]).arg(&tmp);
+            if let Some(f) = &ffmpeg {
+                cmd.arg("--ffmpeg-location").arg(f);
+            }
+            cmd.arg(&url).stdout(Stdio::piped()).stderr(Stdio::piped());
+            match cmd.spawn() {
+                Ok(mut child) => {
+                    if let Some(out) = child.stdout.take() {
+                        for line in BufReader::new(out).lines().map_while(Result::ok) {
+                            if let Some(pct) = line.split_whitespace().find(|w| w.ends_with('%')) {
+                                if let Ok(p) = pct.trim_end_matches('%').parse::<f64>() {
+                                    emit(&app2, &jid, "download", "running", p / 100.0, "Fetching nature clip…", None);
+                                }
+                            }
+                        }
+                    }
+                    *handle.lock().unwrap() = Some(child);
+                    handle.lock().unwrap().as_mut().and_then(|c| c.wait().ok()).map(|s| s.success()).unwrap_or(false)
+                }
+                Err(_) => false,
+            }
+        } else if let Some(ff) = &ffmpeg {
+            // Fallback: ffmpeg can pull a direct https mp4.
+            let mut cmd = command(ff);
+            cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-i"]).arg(&url).args(["-c", "copy"]).arg(&tmp);
+            cmd.spawn().and_then(|mut c| c.wait()).map(|s| s.success()).unwrap_or(false)
+        } else {
+            false
+        };
+        if finish(&app2, &jid) {
+            let _ = std::fs::remove_file(&tmp);
+            return emit(&app2, &jid, "download", "cancelled", 0.0, "Cancelled", None);
+        }
+        if ok && tmp.is_file() && std::fs::rename(&tmp, &dest).is_ok() {
+            emit(&app2, &jid, "download", "done", 1.0, "Ready", Some(dest.to_string_lossy().to_string()));
+        } else {
+            let _ = std::fs::remove_file(&tmp);
+            emit(&app2, &jid, "download", "error", 0.0, "Couldn't fetch this clip. Try another, or install yt-dlp.", None);
+        }
+    });
+    Ok(NatureResult { path: String::new(), job_id: Some(id) })
+}
+
 /// Download a web video (TikTok, YouTube Shorts, Reels, direct links, ...).
 pub fn import_url(app: &AppHandle, url: String) -> Result<String, String> {
     let ytdlp = find_tool(app, "yt-dlp").ok_or("yt-dlp was not found. Install it or place yt-dlp.exe in the tools folder.")?;
