@@ -2,7 +2,7 @@ name: Deploy website
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "feature/aquawall-app"]
     paths: ["web/**", "src/engine/**", "src/shared/**", ".github/workflows/deploy-site.yml"]
   workflow_dispatch:
 
