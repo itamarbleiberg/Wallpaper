@@ -17,5 +17,6 @@
       "@shared/*": ["../src/shared/*"]
     }
   },
-  "include": ["src", "../src/engine", "../src/shared"]
+  "//": "Only the web sources are included. Engine/shared files are type-checked where imported via the aliases; this deliberately excludes the desktop-only ../src/shared/ipc.ts (which imports Tauri).",
+  "include": ["src"]
 }
