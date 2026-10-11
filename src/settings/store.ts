@@ -3,7 +3,7 @@ import { invoke, listen } from "../shared/ipc";
 import type { AppConfig, Category, JobEvent, LibraryItem, MonitorInfo, PlaybackState, Preset, PresetKind, ToolStatus, WallpaperTarget } from "../shared/types";
 import { builtinPresets, makePreset, normalizeConfig, uid } from "../shared/types";
 
-export type Page = "gallery" | "editor" | "widgets" | "automation" | "displays" | "performance" | "settings";
+export type Page = "gallery" | "editor" | "widgets" | "automation" | "displays" | "performance" | "settings" | "help";
 
 interface JobInfo extends JobEvent { label: string; onDone?: (path: string) => void }
 
@@ -222,6 +222,7 @@ export const useStore = create<Store>()((set, get) => ({
   remove(id) {
     const p = get().config?.presets.find((x) => x.id === id);
     if (!p || p.builtin) return;
+    if (get().config?.general.confirmDelete && !window.confirm(`Delete “${p.name}”? You can undo this with Ctrl+Z.`)) return;
     get().update((c) => {
       c.presets = c.presets.filter((x) => x.id !== id);
       if (c.display.defaultPresetId === id) c.display.defaultPresetId = "builtin-pool";

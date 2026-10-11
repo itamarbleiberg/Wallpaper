@@ -11,6 +11,9 @@ import { AutomationPage } from "./pages/AutomationPage";
 import { DisplaysPage } from "./pages/DisplaysPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { HelpPage } from "./pages/HelpPage";
+import { CommandPalette } from "./CommandPalette";
+import { Welcome } from "./Welcome";
 
 const NAV: { id: Page; label: string; icon: string }[] = [
   { id: "gallery", label: "Gallery", icon: "gallery" },
@@ -20,6 +23,7 @@ const NAV: { id: Page; label: string; icon: string }[] = [
   { id: "displays", label: "Displays", icon: "displays" },
   { id: "performance", label: "Performance", icon: "performance" },
   { id: "settings", label: "Settings", icon: "settings" },
+  { id: "help", label: "Help", icon: "info" },
 ];
 
 const PAGES: Record<Page, () => ReactElement | null> = {
@@ -30,11 +34,13 @@ const PAGES: Record<Page, () => ReactElement | null> = {
   displays: DisplaysPage,
   performance: PerformancePage,
   settings: SettingsPage,
+  help: HelpPage,
 };
 
 export function App() {
   const { config, page, go, init, toast, undo, redo, past, future } = useStore();
   const [err, setErr] = useState<string | null>(null);
+  const [commandOpen, setCommandOpen] = useState(false);
 
   useEffect(() => {
     videoUrlResolver().then(setThumbUrlResolver);
@@ -44,8 +50,10 @@ export function App() {
   // Global undo / redo (ignored while typing in a field).
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "k" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setCommandOpen(true); return; }
       const t = e.target as HTMLElement;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setCommandOpen(true); return; }
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
       else if (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
@@ -90,6 +98,9 @@ export function App() {
           <div className="brand-text"><b>AquaWall</b><span>Live wallpapers</span></div>
         </div>
         <div className="nav-list">
+          <button className="nav command-nav" onClick={() => setCommandOpen(true)} title="Command center (Ctrl+K)">
+            <Icon name="search" size={18} /><span>Command center</span><kbd>Ctrl K</kbd>
+          </button>
           {NAV.map((n) => (
             <button key={n.id} className={`nav ${page === n.id ? "active" : ""}`} onClick={() => go(n.id)}>
               <Icon name={n.icon} size={18} />
@@ -123,6 +134,8 @@ export function App() {
         <Current />
       </main>
       {toast && <div className={`toast ${toast.kind}`}><Icon name={toast.kind === "error" ? "info" : "check"} size={16} />{toast.msg}</div>}
+      <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />
+      <Welcome />
     </div>
   );
 }

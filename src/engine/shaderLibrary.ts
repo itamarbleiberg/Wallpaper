@@ -2,6 +2,7 @@
 //   iResolution (vec3), iTime, iTimeDelta, iFrame, iMouse (vec4, px),
 //   iDate, iChannel0 (64x1 live audio spectrum, .r = level 0..1)
 import type { Category, EffectsSettings, FilterSettings } from "../shared/types";
+import { SHADER_LIBRARY_V4 } from "./shaderLibrary2";
 
 export interface LibraryShader {
   id: string;
@@ -785,4 +786,5 @@ export const SHADER_LIBRARY: LibraryShader[] = [
   { id: "storm", name: "Thunderstorm", category: "nature", description: "Rolling storm clouds, rain and lightning strikes.", code: storm },
   { id: "meadow", name: "Windy Meadow", category: "nature", description: "Grass and flowers sway in a breeze you control with the mouse.", code: meadow },
   { id: "retro-sun", name: "Outrun Sunset", category: "retro", description: "Striped sun, purple mountains and a glowing grid.", code: retroSun, effects: { beatPulse: 0.3 } },
+  ...SHADER_LIBRARY_V4,
 ];

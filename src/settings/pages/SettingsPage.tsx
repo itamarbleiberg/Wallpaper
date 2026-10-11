@@ -10,7 +10,7 @@ export function SettingsPage() {
   if (!config) return null;
 
   const backup = async () => {
-    const ok = await exportText(`AquaWall backup ${new Date().toISOString().slice(0, 10)}.aquawall`, JSON.stringify({ aquawall: 2, backup: true, config }, null, 2), "aquawall");
+    const ok = await exportText(`AquaWall backup ${new Date().toISOString().slice(0, 10)}.aquawall`, JSON.stringify({ aquawall: 4, backup: true, config }, null, 2), "aquawall");
     if (ok) notify("Backup saved");
   };
   const restore = async () => {
@@ -29,7 +29,7 @@ export function SettingsPage() {
   const exportMine = async () => {
     const mine = config.presets.filter((p) => !p.builtin);
     if (!mine.length) return notify("You haven't created any wallpapers yet", "error");
-    const ok = await exportText("My AquaWall wallpapers.aquawall", JSON.stringify({ aquawall: 2, presets: mine }, null, 2), "aquawall");
+    const ok = await exportText("My AquaWall wallpapers.aquawall", JSON.stringify({ aquawall: 4, presets: mine }, null, 2), "aquawall");
     if (ok) notify(`Exported ${mine.length} wallpapers`);
   };
   const resetAll = async () => {
@@ -47,6 +47,8 @@ export function SettingsPage() {
           <Toggle label="Start AquaWall with Windows" value={config.general.autostart} onChange={(v) => update((c) => { c.general.autostart = v; }, { immediate: true })} hint="Starts quietly in the system tray" />
           <Toggle label="Pause all wallpapers" value={config.paused} onChange={(v) => update((c) => { c.paused = v; }, { immediate: true })} />
           <Toggle label="Mute all wallpaper audio" value={config.muted} onChange={(v) => update((c) => { c.muted = v; }, { immediate: true })} />
+        <Toggle label="Confirm before deleting a wallpaper" value={config.general.confirmDelete} onChange={(v) => update((c) => { c.general.confirmDelete = v; })} />
+        <Button small icon="info" onClick={() => update((c) => { c.general.onboardingDone = false; }, { immediate: true, history: false })}>Show welcome tour</Button>
         </Card>
 
         <Card title="Windows wallpaper sync" icon="monitor" subtitle="Keeps your lock screen, Task View and sign-in background matching" right={<Toggle label="" value={config.general.syncStaticWallpaper} onChange={(v) => update((c) => { c.general.syncStaticWallpaper = v; })} />}>

@@ -93,6 +93,9 @@ function UrlDialog({ onClose }: { onClose: () => void }) {
 export function GalleryPage() {
   const { config, search, setSearch, category, setCategory, addMedia, createPreset, edit, notify, jobs, update } = useStore();
   const [urlOpen, setUrlOpen] = useState(false);
+  const [sort, setSort] = useState<"featured" | "name" | "type">("featured");
+  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
+  const [interactiveOnly, setInteractiveOnly] = useState(false);
 
   useEffect(() => {
     let un: (() => void) | undefined;
@@ -110,13 +113,18 @@ export function GalleryPage() {
   const list = useMemo(() => {
     if (!config) return [];
     const q = search.trim().toLowerCase();
-    return config.presets.filter((p) => {
+    const result = config.presets.filter((p) => {
       if (category === "favorites" && !p.favorite) return false;
       if (category !== "all" && category !== "favorites" && p.category !== category) return false;
+      if (interactiveOnly && p.kind === "image" && !p.effects.ripples.enabled && p.effects.parallax <= 0) return false;
       if (q && !(`${p.name} ${p.description} ${p.category} ${p.kind}`.toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [config, search, category]);
+    if (sort === "name") result.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === "type") result.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+    else result.sort((a, b) => Number(b.favorite) - Number(a.favorite));
+    return result;
+  }, [config, search, category, interactiveOnly, sort]);
 
   if (!config) return null;
   const active = config.presets.find((p) => p.id === config.display.defaultPresetId) ?? config.presets[0];
@@ -190,6 +198,13 @@ export function GalleryPage() {
         })}
       </div>
 
+      <div className="gallery-tools">
+        <label className="gallery-check"><input type="checkbox" checked={interactiveOnly} onChange={(e) => setInteractiveOnly(e.target.checked)} /> Interactive only</label>
+        <select className="select slim" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} title="Sort wallpapers"><option value="featured">Featured first</option><option value="name">Name A–Z</option><option value="type">Type</option></select>
+        <div className="density"><button className={density === "comfortable" ? "on" : ""} onClick={() => setDensity("comfortable")} title="Comfortable cards">▦</button><button className={density === "compact" ? "on" : ""} onClick={() => setDensity("compact")} title="Compact cards">▦</button></div>
+        <span className="muted small">{list.length} shown</span>
+      </div>
+
       {downloads.map((j) => (
         <div key={j.id} className="job-bar">
           <Icon name="download" size={16} />
@@ -206,7 +221,7 @@ export function GalleryPage() {
           <p>{category === "favorites" ? "No favorites yet. Click the ☆ on any wallpaper." : "No wallpapers match your search."}</p>
         </div>
       ) : (
-        <div className="wgrid">
+        <div className={`wgrid ${density === "compact" ? "compact" : ""}`}>
           {list.map((p) => <WallpaperCard key={p.id} p={p} active={onDesktop.has(p.id)} />)}
         </div>
       )}

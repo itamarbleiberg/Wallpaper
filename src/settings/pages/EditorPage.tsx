@@ -58,7 +58,7 @@ export function EditorPage() {
   };
   const exportPreset = async () => {
     const { builtin: _b, ...rest } = p;
-    const ok = await exportText(`${p.name.replace(/[^\w -]+/g, "")}.aquawall`, JSON.stringify({ aquawall: 3, presets: [rest] }, null, 2), "aquawall");
+    const ok = await exportText(`${p.name.replace(/[^\w -]+/g, "")}.aquawall`, JSON.stringify({ aquawall: 4, presets: [rest] }, null, 2), "aquawall");
     if (ok) notify("Wallpaper exported");
   };
 

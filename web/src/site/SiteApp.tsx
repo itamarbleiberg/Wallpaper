@@ -54,7 +54,7 @@ export function SiteApp() {
           <h1>Your desktop,<br /><span className="grad">alive and interactive.</span></h1>
           <p className="lede">
             AquaWall replaces your static wallpaper with water that ripples under your cursor, koi that swim away from your mouse,
-            looping videos, and 33 hand-built scenes — all running behind your desktop icons.
+            looping videos, and 53 hand-built scenes — all running behind your desktop icons.
           </p>
           <div className="hero-cta">
             <DownloadButton large />
@@ -65,7 +65,7 @@ export function SiteApp() {
             {" "}Move your mouse over the preview above.
           </p>
           <div className="hero-stats">
-            <Stat n="33" label="built-in wallpapers" />
+            <Stat n="53" label="built-in wallpapers" />
             <Stat n="60fps" label="4K rendering" />
             <Stat n="0" label="cost, forever" />
           </div>

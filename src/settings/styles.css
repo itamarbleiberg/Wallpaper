@@ -399,3 +399,59 @@ kbd { font: 600 11.5px "Cascadia Code", Consolas, monospace; padding: 3px 7px; b
   .toast { left: 50%; }
   .field { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* v4 command center */
+.command-nav { justify-content: flex-start; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); margin-bottom: 6px; }
+.command-nav kbd { margin-left: auto; color: var(--faint); font-size: 10px; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+.cmd-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: start center; padding-top: min(14vh, 160px); background: rgba(2,5,10,.7); backdrop-filter: blur(8px); }
+.cmd { width: min(680px, calc(100vw - 32px)); max-height: min(620px, 75vh); display: flex; flex-direction: column; border-radius: 16px; background: #111a27; border: 1px solid var(--line-2); box-shadow: 0 24px 90px rgba(0,0,0,.65); overflow: hidden; }
+.cmd-input { display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid var(--line); color: var(--accent); }
+.cmd-input input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 16px; }
+.cmd-list { overflow-y: auto; padding: 8px; }
+.cmd-list button { width: 100%; display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; padding: 11px; border: 0; border-radius: 9px; background: transparent; color: var(--text); text-align: left; }
+.cmd-list button:hover, .cmd-list button.active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.cmd-list button .icon { color: var(--accent); }
+.cmd-list small { color: var(--muted); text-transform: capitalize; }
+.cmd-empty { padding: 28px; text-align: center; color: var(--muted); }
+.cmd footer { display: flex; gap: 16px; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11px; }
+.cmd footer kbd { margin-right: 5px; font: inherit; color: var(--muted); border: 1px solid var(--line-2); border-radius: 4px; padding: 2px 4px; }
+
+/* v4 help center */
+.guide-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.guide-grid button { display: grid; grid-template-columns: 34px 1fr; grid-template-rows: auto auto; gap: 3px 10px; text-align: left; padding: 14px; border-radius: 11px; border: 1px solid var(--line); background: rgba(255,255,255,.025); color: var(--text); }
+.guide-grid button:hover { border-color: var(--accent); background: color-mix(in srgb,var(--accent) 8%,transparent); }
+.guide-grid i { grid-row: 1 / 3; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: color-mix(in srgb,var(--accent) 18%,transparent); color: var(--accent); font-style: normal; font-weight: 700; }
+.guide-grid span { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.readiness { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.readiness span { display: flex; align-items: center; gap: 8px; }
+.help-key { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.help-key kbd { min-width: 130px; text-align: center; }
+.help-key span { color: var(--muted); }
+.glossary { display: grid; grid-template-columns: 85px 1fr; gap: 8px 12px; margin: 0; }
+.glossary dt { color: var(--accent); font-weight: 600; }
+.glossary dd { margin: 0; color: var(--muted); }
+.help-faq details { border-bottom: 1px solid var(--line); padding: 10px 0; }
+.help-faq summary { cursor: pointer; font-weight: 600; }
+.help-faq p { color: var(--muted); padding: 8px 4px 2px; }
+@media(max-width:1100px){.guide-grid{grid-template-columns:1fr 1fr}}
+
+/* v4 welcome tour */
+.welcome-step { text-align: center; display: grid; justify-items: center; gap: 10px; padding: 18px 12px 6px; }
+.welcome-icon { width: 72px; height: 72px; border-radius: 22px; display: grid; place-items: center; color: var(--accent); background: color-mix(in srgb,var(--accent) 15%,transparent); box-shadow: 0 12px 36px color-mix(in srgb,var(--accent) 15%,transparent); }
+.welcome-step h2 { font-size: 25px; }
+.welcome-step p { max-width: 470px; color: var(--muted); }
+.welcome-link { border: 0; background: none; color: var(--accent); padding: 6px; }
+.welcome-dots { display: flex; gap: 6px; margin-top: 8px; }
+.welcome-dots i { width: 20px; height: 4px; border-radius: 4px; background: var(--line-2); }
+.welcome-dots i.on { background: var(--accent); }
+
+/* v4 gallery tools */
+.gallery-tools { display: flex; align-items: center; justify-content: flex-end; gap: 9px; margin-top: -8px; }
+.gallery-check { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.gallery-check input { accent-color: var(--accent); }
+.density { display: flex; padding: 2px; border: 1px solid var(--line); border-radius: 7px; }
+.density button { border: 0; background: none; color: var(--muted); border-radius: 5px; padding: 3px 7px; }
+.density button.on { background: var(--accent); color: #051018; }
+.wgrid.compact { grid-template-columns: repeat(auto-fill,minmax(190px,1fr)); gap: 10px; }
+.wgrid.compact .wcard-info p { display: none; }
+.wgrid.compact .wcard-info { padding: 9px 10px; }

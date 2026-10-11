@@ -1,12 +1,14 @@
 const FEATURES: { icon: string; title: string; body: string }[] = [
+  { icon: "code", title: "Pro-grade editor", body: "A Resolve-inspired editor with color wheels, creative LUTs, crop, transform, chroma key, motion keyframes, bloom and lens effects." },
   { icon: "water", title: "Interactive water engine", body: "A real GPU wave simulation. Your cursor leaves ripples, clicks make splashes, and koi fish dart away. Not a video — it reacts to you." },
   { icon: "video", title: "Any video, any link", body: "Drop in MP4/WEBM/MOV, or paste a TikTok, YouTube Shorts or Reels link and AquaWall downloads it for you." },
   { icon: "scissors", title: "Built-in 4K loop maker", body: "Trim the perfect loop, pick seamless/ping-pong/crossfade, then bake it to a smooth 4K MP4 with motion interpolation." },
-  { icon: "code", title: "24 live shaders", body: "Aurora, galaxies, neon tunnels, rain on glass and more — written in GLSL and running in real time. Edit the code or write your own." },
+  { icon: "code", title: "38 live shaders", body: "Aurora, galaxies, neon tunnels, rain on glass and more — written in GLSL and running in real time. Edit the code or write your own." },
   { icon: "widgets", title: "Clock, weather & more", body: "Clock, live weather, audio visualizer, CPU/RAM, countdown and custom text — floating over your wallpaper, behind your icons." },
   { icon: "bolt", title: "Light on your PC", body: "Automatically pauses for fullscreen games, maximized apps, low battery or when you step away. A paused wallpaper uses zero GPU." },
   { icon: "monitor", title: "Every monitor", body: "Independent wallpapers per screen, one image spanning all of them, or the same everywhere. Fixed and reliable on Windows 11 24H2." },
   { icon: "clock", title: "Automation", body: "Rotate a playlist, switch by time of day, dim and warm at night, and control it all with global keyboard shortcuts." },
+  { icon: "sparkle", title: "53 built-in scenes", body: "New v4 collections add Hyperspace, Daydream Sky, Crystal Facets, Jelly Drift, six new water worlds and more." },
 ];
 
 function Glyph({ name }: { name: string }) {
@@ -18,6 +20,7 @@ function Glyph({ name }: { name: string }) {
     widgets: "M12 7v5l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z",
     bolt: "M13 3L5 13h6l-1 8 8-10h-6l1-8z",
     monitor: "M3 4h18v12H3zM8 20h8M12 16v4",
+    sparkle: "M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18",
     clock: "M12 7v5l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z",
   };
   return (

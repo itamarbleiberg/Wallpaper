@@ -21,9 +21,9 @@ function Card({ p }: { p: Preset }) {
 export function GalleryStrip({ presets }: { presets: Preset[] }) {
   // A representative spread across categories.
   const ids = [
-    "builtin-pool", "builtin-koi", "builtin-shader-aurora", "builtin-shader-ocean-sunset",
-    "builtin-shader-galaxy", "builtin-shader-neon-tunnel", "builtin-shader-sakura", "builtin-mosaic-spa",
-    "builtin-shader-rain-glass", "builtin-shader-retro-sun", "builtin-shader-firefly", "builtin-night-pool",
+    "builtin-pool", "builtin-tropical", "builtin-blacklight", "builtin-koi",
+    "builtin-shader-starfield", "builtin-shader-clouds", "builtin-shader-jellyfish", "builtin-shader-crystal",
+    "builtin-shader-ocean-sunset", "builtin-shader-galaxy", "builtin-shader-warp-grid", "builtin-mosaic-spa",
   ];
   const show = ids.map((id) => presets.find((p) => p.id === id)).filter(Boolean) as Preset[];
 
@@ -31,7 +31,7 @@ export function GalleryStrip({ presets }: { presets: Preset[] }) {
     <section className="section" id="gallery">
       <div className="section-head">
         <span className="kicker">Wallpapers</span>
-        <h2>33 scenes in the box — all interactive</h2>
+        <h2>53 scenes in the box — all interactive</h2>
         <p>Water pools, koi ponds, galaxies, synthwave sunsets, falling sakura and more. Click any one to try it live in your browser.</p>
       </div>
       <div className="strip">

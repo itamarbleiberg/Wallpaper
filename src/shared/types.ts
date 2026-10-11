@@ -1,5 +1,4 @@
 import { SHADER_LIBRARY } from "../engine/shaderLibrary";
-import { naturePresets } from "./nature";
 
 export type PresetKind = "water" | "video" | "image" | "shader";
 export type Category = "water" | "nature" | "space" | "abstract" | "retro" | "cozy" | "mine";
@@ -225,7 +224,7 @@ export interface AppConfig {
     idleAction: "dim" | "throttle" | "pause";
     blockedApps: string[];
   };
-  general: { autostart: boolean; showHud: boolean; syncStaticWallpaper: boolean; accent: string };
+  general: { autostart: boolean; showHud: boolean; syncStaticWallpaper: boolean; accent: string; onboardingDone: boolean; confirmDelete: boolean };
   transitions: { type: "fade" | "ripple" | "none"; duration: number };
   playlist: { enabled: boolean; presetIds: string[]; intervalMin: number; shuffle: boolean };
   schedule: { enabled: boolean; slots: { start: string; presetId: string }[] };
@@ -426,6 +425,31 @@ export function builtinPresets(): Preset[] {
       floorStyle: "pebbles", tileScale: 4, tileColor: "#d8eef2", groutColor: "#8fb3bd", waterColor: "#3fd0e0", deepColor: "#0b6d8a",
       clarity: 0.95, caustics: 1.6, refraction: 1.3, specular: 1.4, ambientDrops: 0.1, edgeShadow: 0.25,
     }, { filters: { contrast: 1.05, saturation: 1.1 } }),
+    // ---- v4 water scenes
+    water("builtin-tropical", "Tropical Reef", "Vivid turquoise over a coral-tiled seabed with fish.", {
+      floorStyle: "mosaic", tileScale: 22, tileColor: "#ffd9a0", groutColor: "#c76b4a", waterColor: "#13b7c4", deepColor: "#064b63",
+      clarity: 0.9, caustics: 1.4, koi: 4, koiSpeed: 1.3, lilyPads: 0, specular: 1.3,
+    }, { filters: { vibrance: 0.3, saturation: 1.15 }, effects: { bloom: 0.2 } }),
+    water("builtin-onsen", "Hot Spring", "Steamy warm pool among smooth stones at dusk.", {
+      floorStyle: "pebbles", tileScale: 5, tileColor: "#8a7f6f", groutColor: "#2e2820", waterColor: "#2a7f86", deepColor: "#123238",
+      clarity: 0.78, caustics: 0.9, ambientDrops: 0.3, poolLights: 0.5, lightColor: "#ffcf9a", lilyPads: 3, edgeShadow: 0.55,
+    }, { filters: { temperature: 0.3, brightness: 0.95 }, grade: { enabled: true, lut: "warm-film", lutAmount: 0.4 } }),
+    water("builtin-infinity", "Infinity Pool", "A sleek dark infinity pool reflecting a city skyline.", {
+      floorStyle: "tiles", tileScale: 10, tileColor: "#1b2733", groutColor: "#0a0f16", waterColor: "#14506b", deepColor: "#030a12",
+      clarity: 0.82, lightingDepth: 0.7, caustics: 1.0, reflection: 0.9, specular: 1.8, poolLights: 0.3, lightColor: "#aee0ff", edgeShadow: 0.4,
+    }, { effects: { bloom: 0.25 }, grade: { enabled: true, lut: "teal-orange", lutAmount: 0.35 } }),
+    water("builtin-aurora-pool", "Aurora Pool", "A still mountain pool mirroring the northern lights.", {
+      floorStyle: "pebbles", tileScale: 4, tileColor: "#2b3a4a", groutColor: "#10171f", waterColor: "#1f6f82", deepColor: "#07151c",
+      clarity: 0.7, reflection: 0.85, specular: 1.4, waveSpeed: 0.7, ambientDrops: 0.05, poolLights: 0.6, lightColor: "#64ffb0", edgeShadow: 0.5,
+    }, { effects: { trail: { enabled: true, style: "light", rainbow: true }, bloom: 0.3 } }),
+    water("builtin-tidepool", "Tide Pool", "Shallow rocky tide pool with ripples and sea glass.", {
+      floorStyle: "pebbles", tileScale: 8, tileColor: "#9aa89a", groutColor: "#3b4336", waterColor: "#3a9c8a", deepColor: "#17433c",
+      clarity: 0.93, caustics: 1.3, refraction: 1.1, ambientDrops: 0.6, specular: 1.2, lilyPads: 2,
+    }),
+    water("builtin-blacklight", "Blacklight Pool", "UV-lit pool glowing with neon tiles in the dark.", {
+      floorStyle: "mosaic", tileScale: 24, tileColor: "#2a1066", groutColor: "#0a0320", waterColor: "#3b2a8f", deepColor: "#05021a",
+      clarity: 0.8, lightingDepth: 0.8, caustics: 1.8, poolLights: 1.9, lightColor: "#9cff3b", specular: 2.0, edgeShadow: 0.7,
+    }, { effects: { trail: { enabled: true, style: "both", rainbow: true }, bloom: 0.45 } }),
   ];
   const shaders = SHADER_LIBRARY.map((s) =>
     makePreset("shader", s.name, {
@@ -438,12 +462,12 @@ export function builtinPresets(): Preset[] {
       filters: s.filters ?? {},
     }),
   );
-  return [...pools, ...naturePresets(), ...shaders];
+  return [...pools, ...shaders];
 }
 
 export function defaultConfig(): AppConfig {
   return {
-    version: 3,
+    version: 4,
     presets: builtinPresets(),
     library: [],
     display: { layout: "independent", assignments: {}, defaultPresetId: "builtin-pool" },
@@ -451,7 +475,7 @@ export function defaultConfig(): AppConfig {
       onFullscreen: "pause", onMaximized: "none", onBattery: "throttle", batteryThreshold: 100, pauseOnBatterySaver: true,
       pollMs: 750, cursorHz: 120, interactWhen: "desktop", idleEnabled: false, idleMinutes: 10, idleAction: "dim", blockedApps: [],
     },
-    general: { autostart: false, showHud: false, syncStaticWallpaper: false, accent: "#3fc2ff" },
+    general: { autostart: false, showHud: false, syncStaticWallpaper: false, accent: "#3fc2ff", onboardingDone: false, confirmDelete: true },
     transitions: { type: "fade", duration: 1.2 },
     playlist: { enabled: false, presetIds: [], intervalMin: 15, shuffle: false },
     schedule: {
@@ -527,7 +551,7 @@ export function normalizeConfig(raw: unknown): AppConfig {
   const order = new Map(builtins.map((b, i) => [b.id, i]));
   presets.sort((a, b) => (order.get(a.id) ?? 1e6) - (order.get(b.id) ?? 1e6));
   merged.presets = presets;
-  merged.version = 3;
+  merged.version = 4;
   if (!presets.some((p) => p.id === merged.display.defaultPresetId)) merged.display.defaultPresetId = "builtin-pool";
   return merged;
 }
